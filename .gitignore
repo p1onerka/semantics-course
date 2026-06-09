@@ -1,0 +1,6 @@
+# coq files
+*.aux
+*.glob
+*.vo
+*.vok
+*.vos
