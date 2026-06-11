@@ -26,6 +26,7 @@ Notation "'COND' e 'THEN' s1 'ELSE' s2 'END'" := (If    e s1 s2) (at level 36, n
 Notation "'WHILE' e 'DO' s 'END'"             := (While e s    ) (at level 36, no associativity).
 
 (* Configuration *)
+(* consists of state, input, output *)
 Definition conf := (state Z * list Z * list Z)%type.
 
 (* Big-step evaluation relation *)
@@ -34,15 +35,20 @@ Reserved Notation "c1 '==' s '==>' c2" (at level 0).
 Notation "st [ x '<-' y ]" := (update Z st x y) (at level 0).
 
 Inductive bs_int : stmt -> conf -> conf -> Prop := 
+(* nothing changes *)
 | bs_Skip        : forall (c : conf), c == SKIP ==> c 
+(* eval expr e, then update state *)
 | bs_Assign      : forall (s : state Z) (i o : list Z) (x : id) (e : expr) (z : Z)
                           (VAL : [| e |] s => z),
                           (s, i, o) == x ::= e ==> (s [x <- z], i, o)
+(* take fst val from input stream, then update state *)
 | bs_Read        : forall (s : state Z) (i o : list Z) (x : id) (z : Z),
                           (s, z::i, o) == READ x ==> (s [x <- z], i, o)
+(* eval expr e, then put into output stream *)
 | bs_Write       : forall (s : state Z) (i o : list Z) (e : expr) (z : Z)
                           (VAL : [| e |] s => z),
                           (s, i, o) == WRITE e ==> (s, i, z::o)
+(* pipeline of config changes *)
 | bs_Seq         : forall (c c' c'' : conf) (s1 s2 : stmt)
                           (STEP1 : c == s1 ==> c') (STEP2 : c' == s2 ==> c''),
                           c ==  s1 ;; s2 ==> c''
@@ -67,12 +73,14 @@ where "c1 == s ==> c2" := (bs_int s c1 c2).
 #[export] Hint Constructors bs_int : core.
 
 (* "Surface" semantics *)
+(* from input i get ouput o, state st and empty input (basically fully eval program) *)
 Definition eval (s : stmt) (i o : list Z) : Prop :=
   exists st, ([], i, []) == s ==> (st, [], o).
 
 Notation "<| s |> i => o" := (eval s i o) (at level 0).
 
 (* "Surface" equivalence *)
+(* if one prog gives the same output as the other on the same input *)
 Definition eval_equivalent (s1 s2 : stmt) : Prop :=
   forall (i o : list Z),  <| s1 |> i => o <-> <| s2 |> i => o.
 
@@ -84,7 +92,9 @@ Inductive Context : Type :=
 | SeqL   : Context -> stmt -> Context
 | SeqR   : stmt -> Context -> Context
 | IfThen : expr -> Context -> stmt -> Context
+(* cond, then branch, else branch, after ITE *)
 | IfElse : expr -> stmt -> Context -> Context
+(* cond, inside loop, after loop *)
 | WhileC : expr -> Context -> Context.
 
 (* Plugging a statement into a context *)
@@ -106,11 +116,15 @@ Definition contextual_equivalent (s1 s2 : stmt) :=
 
 Notation "s1 '~c~' s2" := (contextual_equivalent s1 s2) (at level 42, no associativity).
 
+(* ~c~ => ~e~ *)
 Lemma contextual_equiv_stronger (s1 s2 : stmt) (H: s1 ~c~ s2) : s1 ~e~ s2.
-Proof. admit. Admitted.
+Proof.
+  specialize (H Hole). simpl in H. exact H.
+Qed.
 
 Lemma eval_equiv_weaker : exists (s1 s2 : stmt), s1 ~e~ s2 /\ ~ (s1 ~c~ s2).
-Proof. admit. Admitted.
+Proof.
+admit. Admitted.
 
 (* Big step equivalence *)
 Definition bs_equivalent (s1 s2 : stmt) :=
