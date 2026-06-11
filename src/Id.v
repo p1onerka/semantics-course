@@ -123,11 +123,25 @@ Proof.
   lia.
 Qed.
 
+(* helper for next lemma *)
+Lemma le_id_nat : forall n m, Id n i<= Id m -> n <= m.
+Proof.
+  intros n m H.
+  inversion H.
+  assumption.
+Qed.
+
 (* if id1<=id2 then (id1=id2 or id1<id2) *)
 Lemma le_lt_eq_id_dec : forall id1 id2 : id, 
     id1 i<= id2 -> {id1 = id2} + {id2 i> id1}.
 Proof.
-admit. Admitted.
+  intros [n] [m] H_le.
+  destruct (eq_nat_dec n m) as [H_eq | H_neq].
+  - left. subst. reflexivity.
+  - right. apply gt_conv.
+    pose proof (le_id_nat n m H_le) as H_nm.
+    lia.
+Qed.
 
 Lemma neq_lt_gt_id_dec : forall id1 id2 : id,
     id1 <> id2 -> {id1 i> id2} + {id2 i> id1}.
