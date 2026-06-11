@@ -455,7 +455,9 @@ Module SmallStep.
                      (H1: s |- e  -->> e')
                      (H2: s |- e' -->  e'') :
     s |- e -->> e''.
-  Proof. admit. Admitted.
+  Proof.
+    induction H1; eauto. inversion H2.
+  Qed.
   
   Lemma ss_reachable_trans s e e' e''
                           (H1: s |- e  ~~> e')
@@ -475,12 +477,41 @@ Module SmallStep.
 
   Lemma normal_form_is_not_a_value : ~ forall (e : expr), normal_form e -> is_value e.
   Proof.
-      (*intro H. Show. destruct H. 
-  Qed.*) admit. Admitted.
+    intros H.
+    assert (HNF : normal_form (Bop Div (Nat 1) (Nat 0))).
+    {
+      intros s [e' Hstep].
+      inversion Hstep; subst.
+      - (* left *) inversion LEFT.
+      - (* right *) inversion RIGHT.
+      - (* bop *)
+        inversion EVAL; subst.
+        inversion VALB; subst.
+        contradiction.
+    }
+    specialize (H (Bop Div (Nat 1) (Nat 0)) HNF).
+    inversion H.
+  Qed.
   
   Lemma ss_nondeterministic : ~ forall (e e' e'' : expr) (s : state Z), s |- e --> e' -> s |- e --> e'' -> e' = e''.
-  Proof.
-  admit. Admitted.
+  Proof. 
+    intros H_det.
+    pose (i := Id 0).
+    pose (z := 0%Z).
+    pose (s := (i, z) :: nil).
+    assert (H_val : s / i => z).
+    { unfold s, i, z. apply st_binds_hd. }
+    pose (e := Bop Add (Var i) (Var i)).
+    pose (e':= Bop Add (Nat z) (Var i)).
+    pose (e'' := Bop Add (Var i) (Nat z)).
+    assert (H_step1 : s |- e --> e').
+    { unfold e, e'. apply ss_Left. apply ss_Var. exact H_val. }
+    assert (H_step2 : s |- e --> e'').
+    { unfold e, e''. apply ss_Right. apply ss_Var. exact H_val. }
+    specialize (H_det e e' e'' s H_step1 H_step2).
+    unfold e', e'' in H_det.
+    inversion H_det.
+  Qed.
   
   Lemma ss_deterministic_step (e e' : expr)
                          (s    : state Z)
@@ -540,10 +571,16 @@ Module StaticSemantics.
   where "t1 << t2" := (subtype t1 t2).
 
   Lemma subtype_trans t1 t2 t3 (H1: t1 << t2) (H2: t2 << t3) : t1 << t3.
-  Proof. admit. Admitted.
+  Proof.
+    inversion H1; subst. (*Show.*)
+    - exact H2.
+    - inversion H2; subst. constructor.
+  Qed.
 
   Lemma subtype_antisymm t1 t2 (H1: t1 << t2) (H2: t2 << t1) : t1 = t2.
-  Proof. admit. Admitted.
+  Proof.
+    inversion H1; subst. reflexivity. inversion H2; subst; lia.
+  Qed.
   
   Reserved Notation "e :-: t" (at level 0).
   
@@ -567,12 +604,43 @@ Module StaticSemantics.
   | type_Or  : forall e1 e2 (H1 : e1 :-: Bool) (H2 : e2 :-: Bool), (e1 [\/] e2) :-: Bool
   where "e :-: t" := (typeOf e t).
 
+  (* not true. proof below *)
   Lemma type_preservation e t t' (HS: t' << t) (HT: e :-: t) : forall st e' (HR: st |- e ~~> e'), e' :-: t'.
-  Proof. admit. Admitted.
+  Proof. Abort.
 
+  (* TODO: more elegant? *)
+  Theorem type_preservation_is_wrong: 
+    ~ (forall e t t' (HS: t' << t) (HT: e :-: t), forall st e' (HR: st |- e ~~> e'), e' :-: t').
+  Proof.
+    intro H_pres.
+    pose (x := Id 0). pose (st := (x, 1%Z) :: nil).
+    assert (HT : (Var x) :-: Int) by apply type_X.
+    assert (HR : st |- (Var x) ~~> (Nat 1)).
+    {
+      apply reach_step with (e' := Nat 1).
+      - apply ss_Var. apply st_binds_hd.
+      - apply reach_base.
+    }
+    specialize (H_pres (Var x) Int Int (subt_refl Int) HT st (Nat 1) HR).
+    inversion H_pres; subst. (*Show.*)
+    apply HNbool. unfold zbool. left. reflexivity.
+  Qed.
+
+  (* TODO: more elegant? *)
   Lemma type_bool e (HT : e :-: Bool) :
     forall st z (HVal: [| e |] st => z), zbool z.
-  Proof. admit. Admitted.
+  Proof.
+    remember Bool as t.
+    induction HT; intros st ? HVal; try discriminate; try (inversion HVal; subst; unfold zbool; tauto). 
+    - (* and *)
+      inversion HVal; subst; unfold zbool.
+      assert (H_za : zbool za) by eauto.
+      assert (H_zb : zbool zb) by eauto.
+      destruct H_za as [-> | ->]; destruct H_zb as [-> | ->]; simpl; auto.
+    - (* or *)
+      inversion HVal; subst; unfold zor, zbool.
+      destruct (Z_le_gt_dec _ _); auto.
+  Qed.
 
 End StaticSemantics.
 
@@ -587,11 +655,22 @@ Module Renaming.
 
   Definition renamings_inv (r r' : renaming) := forall (x : id), rename_id r (rename_id r' x) = x.
   
+  (* r^(-1) exists *)
   Lemma renaming_inv (r : renaming) : exists (r' : renaming), renamings_inv r' r.
-  Proof. admit. Admitted.
+  Proof.
+    destruct r as [f [g [H_fst H_snd]]]. (*Show.*)
+    exists (exist _ g (ex_intro _ f (conj H_snd H_fst))).
+    unfold renamings_inv, rename_id.
+    exact H_fst.
+  Qed.
 
   Lemma renaming_inv2 (r : renaming) : exists (r' : renaming), renamings_inv r r'.
-  Proof. admit. Admitted.
+  Proof.
+    destruct r as [f [g [H_fst H_snd]]].
+    exists (exist _ g (ex_intro _ f (conj H_snd H_fst))).
+    unfold renamings_inv, rename_id.
+    exact H_snd.
+  Qed.
 
   Fixpoint rename_expr (r : renaming) (e : expr) : expr :=
     match e with
@@ -604,7 +683,18 @@ Module Renaming.
     (r r' : renaming)
     (Hinv : renamings_inv r r')
     (e    : expr) : rename_expr r (rename_expr r' e) = e.
-  Proof. admit. Admitted.
+  Proof.
+    induction e; simpl. (*Show.*)
+    - (* num *)
+      reflexivity.
+    - (* var *)
+      unfold rename_id.
+      rewrite Hinv. 
+      reflexivity.
+    - (* bop *)
+      rewrite IHe1, IHe2. 
+      reflexivity.
+  Qed.
   
   Fixpoint rename_state (r : renaming) (st : state Z) : state Z :=
     match st with
@@ -617,10 +707,42 @@ Module Renaming.
     (r r' : renaming)
     (Hinv : renamings_inv r r')
     (st   : state Z) : rename_state r (rename_state r' st) = st.
-  Proof. admit. Admitted.
+  Proof.
+    induction st; simpl.
+    - (* [] *)
+      reflexivity.
+    - (* (id, x) *)
+      destruct a. destruct r'. destruct r. simpl.
+      unfold renamings_inv, rename_id.
+      rewrite Hinv.
+      rewrite IHst.
+      reflexivity.
+  Qed.
       
   Lemma bijective_injective (f : id -> id) (BH : Bijective f) : Injective f.
-  Proof. admit. Admitted.
+  Proof.
+    unfold Bijective, Injective.
+    destruct BH as [g [H_fst H_snd]].
+    intros x y H_eq.
+    assert (H_g: g (f x) = g (f y)) by (rewrite H_eq; reflexivity).
+    rewrite H_fst in H_g. rewrite H_fst in H_g.
+    exact H_g.
+  Qed.
+
+  (* helper for next lemma *)
+  Lemma st_binds_rename (x: id) (st: state Z) (z: Z) (r: renaming):
+    st / x => z -> (rename_state r st) / (rename_id r x) => z.
+  Proof.
+    intro H.
+    induction H.
+    - (* hd *) destruct r. apply st_binds_hd.
+    - (* tl *)
+      destruct r as [f H_f]. simpl. apply st_binds_tl.
+      + (*  id != id' *)
+        intro H_eq. apply H.
+        apply bijective_injective with (f := f); assumption.
+      + exact IHst_binds.
+  Qed.
   
   Lemma eval_renaming_invariance (e : expr) (st : state Z) (z : Z) (r: renaming) :
     [| e |] st => z <-> [| rename_expr r e |] (rename_state r st) => z.
