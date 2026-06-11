@@ -91,37 +91,34 @@ Section S.
       intros H; inversion H; subst; [contradiction | assumption].
   Qed.
   
-  (* shadowing of one var doesnt affect other *)
+  (* shadowing of one var doesnt affect other. TODO: check if could be more elegant *)
   Lemma update_shadow (st : state) (x1 x2 : id) (n1 n2 m : A) :
     st[x2 <- n1][x2 <- n2] / x1 => m <-> st[x2 <- n2] / x1 => m.
   Proof.
-    (*unfold update.
-    split.
-    - (* => *)
-      intros H.
-      destruct (id_eq_dec x1 x2) as [H_eq | H_neq]. Show.
-      + 
-        subst x1.
-        inversion H; subst.
-        constructor. Show.
-      + 
-        apply (update_neq st x2 x1 n2 m H_neq).
-        apply (update_neq st x2 x1 n1 m H_neq).
-        exact H.
-    - (* <= *)
-      intros H.
-      destruct (id_eq_dec x1 x2) as [Heq | Hneq].
-      +
-        subst x1.
-        inversion H; subst.
-        apply st_binds_tl with (id':=x2) (x':=n1).
-          * intro H_eq. apply Hneq. symmetry. exact H_eq.
-          * constructor.
-      +
-        apply (update_neq st x2 x1 n1 m Hneq).
-        apply (update_neq st x2 x1 n2 m Hneq).
-        exact H.
-  Qed.*) admit. Admitted.
+    destruct (id_eq_dec x1 x2) as [H_eq | H_neq].
+    - (* x1=x2 *)
+      subst. split; intro H.
+      + assert (m = n2).
+        { eapply state_deterministic.
+          - exact H.
+          - apply update_eq.
+        }
+        subst. apply update_eq.
+      + assert (m = n2).
+        { eapply state_deterministic.
+          - exact H.
+          - apply update_eq.
+        }
+        subst. apply update_eq.
+    - (* x1!=x2 *)
+      split; intro H.
+      + apply update_neq in H; auto.
+        apply update_neq in H; auto.
+        apply update_neq; auto.
+      + apply update_neq in H; auto.
+        apply update_neq; auto.
+        apply update_neq; auto.
+  Qed.
   
   (* update with same value doesnt affect other pairs *)
   Lemma update_same (st : state) (x1 x2 : id) (n1 m : A)
@@ -147,12 +144,39 @@ Section S.
     apply update_eq.*)
   Qed.
   
-  (* the order of updates doesnt affect other pairs *)
+  (* the order of updates doesnt affect other pairs. TODO: more elegant? *)
   Lemma update_permute (st : state) (x1 x2 x3 : id) (n1 n2 m : A)
         (NEQ : x2 <> x1)
         (SM : st [x2 <- n1][x1 <- n2] / x3 => m) :
     st [x1 <- n2][x2 <- n1] / x3 => m.
-  Proof. admit. Admitted.
+  Proof. 
+      destruct (id_eq_dec x3 x1) as [H_eq | H_neq].
+  - (* x1=x3 => n2=m *)
+    subst. assert (m = n2).
+    {
+      eapply state_deterministic.
+      - exact SM.
+      - apply update_eq.
+    }
+    subst. apply update_neq.
+    + exact NEQ.
+    + apply update_eq.
+  - (* x1!=x3 => (x2=x3 => m=n1) | (m!=n1) *)
+    destruct (id_eq_dec x3 x2) as [H_eq_inner | H_neq_inner].
+    + subst. assert (m = n1).
+      {
+        eapply state_deterministic.
+        - exact SM.
+        - apply update_neq.
+          * congruence.
+          * apply update_eq.
+      }
+      subst. apply update_eq.
+    + apply update_neq in SM; auto.
+      apply update_neq in SM; auto.
+      apply update_neq; auto.
+      apply update_neq; auto.
+  Qed.
 
   (* not true. TODO: proof *)
   Lemma state_extensional_equivalence (st st' : state) (H: forall x z, st / x => z <-> st' / x => z) : st = st'.
