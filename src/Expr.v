@@ -46,8 +46,10 @@ Notation "x '[/=]' y" := (Bop Ne  x y) (at level 39, no associativity).
 Notation "x '[&]'  y" := (Bop And x y) (at level 38, left associativity).
 Notation "x '[\/]' y" := (Bop Or  x y) (at level 38, left associativity).
 
+(* finds if value is 0 or 1 => can be used as bool *)
 Definition zbool (x : Z) : Prop := x = Z.one \/ x = Z.zero.
   
+(* logical "or" with numbers: if 1 <= x+y then 1 else 0 *)
 Definition zor (x y : Z) : Z :=
   if Z_le_gt_dec (Z.of_nat 1) (x + y) then Z.one else Z.zero.
 
@@ -56,11 +58,14 @@ Notation "st / x => y" := (st_binds Z st x y) (at level 0).
 
 (* Big-step evaluation relation *)
 Inductive eval : expr -> state Z -> Z -> Prop := 
+  (* const evals into itself *)
   bs_Nat  : forall (s : state Z) (n : Z), [| Nat n |] s => n
 
+(* variable evals into its value *)
 | bs_Var  : forall (s : state Z) (i : id) (z : Z) (VAR : s / i => z),
     [| Var i |] s => z
 
+(* same as bs_Var but for arithmetics *)
 | bs_Add  : forall (s : state Z) (a b : expr) (za zb : Z)
                    (VALA : [| a |] s => za)
                    (VALB : [| b |] s => zb),
@@ -88,6 +93,7 @@ Inductive eval : expr -> state Z -> Z -> Prop :=
                    (NZERO : ~ zb = Z.zero),
     [| a [%] b |] s => (Z.modulo za zb)
 
+(* logical opers *)
 | bs_Le_T : forall (s : state Z) (a b : expr) (za zb : Z)
                    (VALA : [| a |] s => za)
                    (VALB : [| b |] s => zb)
@@ -179,16 +185,26 @@ where "[| e |] st => z" := (eval e st z).
 
 Module SmokeTest.
 
+  (* not true if var doesnt exist! TODO: rewrite *)
   Lemma zero_always x (s : state Z) : [| Var x [*] Nat 0 |] s => Z.zero.
-  Proof. admit. Admitted.
+  Proof. Abort.
   
   Lemma nat_always n (s : state Z) : [| Nat n |] s => n.
-  Proof. admit. Admitted.
+  Proof.
+    constructor.
+  Qed.
   
+  (* 2x = x+x *)
   Lemma double_and_sum (s : state Z) (e : expr) (z : Z)
         (HH : [| e [*] (Nat 2) |] s => z) :
     [| e [+] e |] s => z.
-  Proof. admit. Admitted.
+  Proof.
+      inversion HH; subst. (* bs_Mul => (za * zb), subst => z <- (za*zb) *)
+      inversion VALB; subst. (* bs_Nat, subst => zb <- 2 *)
+      replace (za * 2)%Z with (za + za)%Z by lia. (* replace 2x -> x+x via lia *)
+      constructor; assumption.
+  (*Show.*)
+  Qed.
   
 End SmokeTest.
 
@@ -201,9 +217,20 @@ Inductive subexpr : expr -> expr -> Prop :=
 | subexpr_right : forall e e' e'' : expr, forall op : bop, e << e'' -> e << (Bop op e' e'')
 where "e1 << e2" := (subexpr e1 e2).
 
+(* if (e is sibexpr of e', e evals into z) then exists z' that e' evals into *)
 Lemma strictness (e e' : expr) (HSub : e' << e) (st : state Z) (z : Z) (HV : [| e |] st => z) :
   exists z' : Z, [| e' |] st => z'.
-Proof. admit. Admitted.
+Proof.
+  revert st z HV. (* "generalize" for identifiers. basically forall quantifier *)
+  induction HSub. (* spawns 3 cases: refl, left, right *)
+  - intros st z HV.
+    exists z.
+    exact HV.
+  - intros st z HV.
+    inversion HV; subst; eauto.
+  - intros st z HV.
+    inversion HV; subst; eauto.
+Qed.
 
 Reserved Notation "x ? e" (at level 0).
 
@@ -231,45 +258,98 @@ Proof. admit. Admitted.
 Lemma undefined_variable (e : expr) (s : state Z) (id : id)
       (ID : id ? e) (UNDEF : forall (z : Z), ~ (s / id => z)) :
   forall (z : Z), ~ ([| e |] s => z).
-Proof. admit. Admitted.
+Proof.
+  intros z RED.
+  destruct (defined_expression e s z id RED ID) as [v HV].
+  specialize (UNDEF v).
+  contradiction.
+Qed.
 
 (* The evaluation relation is deterministic *)
 Lemma eval_deterministic (e : expr) (s : state Z) (z1 z2 : Z) 
       (E1 : [| e |] s => z1) (E2 : [| e |] s => z2) :
   z1 = z2.
-Proof. admit. Admitted.
+Proof. 
+  (*revert z2 E2.
+  induction E1;
+  intros;
+  inversion E2;
+  subst;
+  try congruence;
+  try lia.
+  (* var *)
+  eapply state_deterministic; eauto. Show.
+  (* arith *)
+  specialize (IHE1_1 _ VALA).
+  specialize (IHE1_2 _ VALB).
+  subst.
+  lia. Show.
+Qed.*) admit. Admitted.
 
 (* Equivalence of states w.r.t. an identifier *)
+(* every given id has the same meaning in both states *)
 Definition equivalent_states (s1 s2 : state Z) (id : id) :=
   forall z : Z, s1 /id => z <-> s2 / id => z.
 
+(* helper for bops. TODO: delete it if i dontt use it *)
+(*Lemma FV_bop op a b id :
+  id ? a \/ id ? b -> id ? (Bop op a b).
+Proof. eauto. Qed.*)
+
+(* if states are equivalent, expr e will eval into same thing *)
 Lemma variable_relevance (e : expr) (s1 s2 : state Z) (z : Z)
       (FV : forall (id : id) (ID : id ? e),
           equivalent_states s1 s2 id)
       (EV : [| e |] s1 => z) :
   [| e |] s2 => z.
-Proof. admit. Admitted.
+Proof.
+  induction e in s1, s2, z, FV, EV |- *. (*Show.*)
+  - (* number *)
+    inversion EV; subst; constructor.
+  - (* var *)
+    inversion EV; subst; constructor; apply FV; auto using v_Var.
+  - (* bop *)
+    inversion EV; subst; econstructor; eauto;
+    try (eapply IHe1; eauto; intros; apply FV; left; auto);
+    try (eapply IHe2; eauto; intros; apply FV; right; auto).
+Qed.
 
+(* exprs are equivalent if they eval into the same thing *)
 Definition equivalent (e1 e2 : expr) : Prop :=
   forall (n : Z) (s : state Z), 
     [| e1 |] s => n <-> [| e2 |] s => n.
 Notation "e1 '~~' e2" := (equivalent e1 e2) (at level 42, no associativity).
 
 Lemma eq_refl (e : expr): e ~~ e.
-Proof. admit. Admitted.
+Proof. 
+  constructor; auto.
+Qed.
 
 Lemma eq_symm (e1 e2 : expr) (EQ : e1 ~~ e2): e2 ~~ e1.
-Proof. admit. Admitted.
+Proof.
+  unfold equivalent.
+  intros n s.
+  split.
+  - intros H. apply EQ. assumption.
+  - intros H. apply EQ. assumption.
+Qed.
 
 Lemma eq_trans (e1 e2 e3 : expr) (EQ1 : e1 ~~ e2) (EQ2 : e2 ~~ e3):
   e1 ~~ e3.
-Proof. admit. Admitted.
+Proof.
+  unfold equivalent.
+  intros n s.
+  split.
+  - intros H. apply EQ2. apply EQ1. assumption.
+  - intros H. apply EQ1. apply EQ2. assumption.
+Qed.
 
 Inductive Context : Type :=
 | Hole : Context
 | BopL : bop -> Context -> expr -> Context
 | BopR : bop -> expr -> Context -> Context.
 
+(* insert expr into hole *)
 Fixpoint plug (C : Context) (e : expr) : expr := 
   match C with
   | Hole => e
@@ -279,6 +359,7 @@ Fixpoint plug (C : Context) (e : expr) : expr :=
 
 Notation "C '<~' e" := (plug C e) (at level 43, no associativity).
 
+(* e1 and e2 make equivalent exprs after being plugged into any given context *)
 Definition contextual_equivalent (e1 e2 : expr) : Prop :=
   forall (C : Context), (C <~ e1) ~~ (C <~ e2).
 
@@ -287,7 +368,16 @@ Notation "e1 '~c~' e2" := (contextual_equivalent e1 e2)
 
 Lemma eq_eq_ceq (e1 e2 : expr) :
   e1 ~~ e2 <-> e1 ~c~ e2.
-Proof. admit. Admitted.
+Proof.
+  split.
+  - (* => *)
+    intros H C. induction C. simpl. (*Show.*)
+    + (* Hole *) exact H.
+    + (* BopL *) split; intros Ev; inversion Ev; subst; econstructor; eauto; apply IHC; auto.
+    + (* BopR *) split; intros Ev; inversion Ev; subst; econstructor; eauto; apply IHC; auto.
+  - (* <= *)
+    intros H. apply (H Hole).
+Qed.
 
 Module SmallStep.
 
@@ -340,10 +430,23 @@ Module SmallStep.
   #[export] Hint Constructors ss_eval : core.
 
   Lemma ss_eval_reachable s e e' (HE: s |- e -->> e') : s |- e ~~> e'.
-  Proof. admit. Admitted.
+  Proof.
+    induction HE.
+    - (* stop *) apply reach_base.
+    - (* step *) apply reach_step with e'.
+      + exact HStep.
+      + exact IHHE.
+  Qed.
 
   Lemma ss_reachable_eval s e z (HR: s |- e ~~> (Nat z)) : s |- e -->> (Nat z).
-  Proof.  admit. Admitted.
+  Proof.
+    remember (Nat z).
+    induction HR.
+    - (* base *) subst; constructor.
+    - (* step *) apply se_Step with e'. (*Show.*)
+        + assumption.
+        + apply IHHR; assumption.
+  Qed.
 
   #[export] Hint Resolve ss_eval_reachable : core.
   #[export] Hint Resolve ss_reachable_eval : core.
@@ -358,19 +461,26 @@ Module SmallStep.
                           (H1: s |- e  ~~> e')
                           (H2: s |- e' ~~> e'') :
     s |- e ~~> e''.
-  Proof. admit. Admitted.
+  Proof.
+  induction H1; eauto.
+  Qed.
           
   Definition normal_form (e : expr) : Prop :=
     forall s, ~ exists e', (s |- e --> e').   
 
   Lemma value_is_normal_form (e : expr) (HV: is_value e) : normal_form e.
-  Proof. admit. Admitted.
+  Proof.
+    intros s [e' Hstep]; inversion HV; subst; inversion Hstep.
+  Qed.
 
   Lemma normal_form_is_not_a_value : ~ forall (e : expr), normal_form e -> is_value e.
-  Proof. admit. Admitted.
+  Proof.
+      (*intro H. Show. destruct H. 
+  Qed.*) admit. Admitted.
   
   Lemma ss_nondeterministic : ~ forall (e e' e'' : expr) (s : state Z), s |- e --> e' -> s |- e --> e'' -> e' = e''.
-  Proof. admit. Admitted.
+  Proof.
+  admit. Admitted.
   
   Lemma ss_deterministic_step (e e' : expr)
                          (s    : state Z)
