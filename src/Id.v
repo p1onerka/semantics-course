@@ -127,34 +127,26 @@ Qed.
 Lemma le_lt_eq_id_dec : forall id1 id2 : id, 
     id1 i<= id2 -> {id1 = id2} + {id2 i> id1}.
 Proof.
-  (*intros [a] [b] H_a_le_b.
-  destruct (gt_eq_gt_dec a b) as [[H_a_gt_b | H_eq] | H_a_lt_b].
-  - (* anything can be proven from the False *)
-    destruct H_a_le_b
-    inversion H_a_le_b as [a' b' Hle].
-    subst.
-    lia.
-  - left.
-    destruct H_eq.
-    exact H_eq.
-  - right.
-    exact H_a_lt_b.*)
-
-
-  (*inversion H_le as [a' b' H]; subst. (* because hypothesis was built from constructor *)
-  destruct (Nat.eq_dec a b) as [H_eq | H_neq].
-  - left.
-    subst.
-    reflexivity.
-  - right.
-    constructor.
-    lia.*)
 admit. Admitted.
 
 Lemma neq_lt_gt_id_dec : forall id1 id2 : id,
     id1 <> id2 -> {id1 i> id2} + {id2 i> id1}.
-Proof. admit. Admitted.
+Proof. 
+  intros id1 id2 H_neq.
+  destruct (le_gt_id_dec id1 id2) as [H_le | H_gt].
+  - (* id1 i<= id2 *)
+    destruct (le_lt_eq_id_dec id1 id2 H_le) as [H_eq | H_gt2].
+    + contradiction.
+    + right. exact H_gt2.
+  - (* id1 i> id2 *)
+    left. exact H_gt.
+Qed.
     
 Lemma eq_gt_id_false : forall id1 id2 : id,
     id1 = id2 -> id1 i> id2 -> False.
-Proof. admit. Admitted.
+Proof. 
+  intros id1 id2 H_eq H_gt.
+  destruct H_gt as [n m H_gt_nat].
+  injection H_eq as H_eq_nat.
+  lia.
+Qed.
