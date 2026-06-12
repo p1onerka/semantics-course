@@ -122,9 +122,24 @@ Proof.
   specialize (H Hole). simpl in H. exact H.
 Qed.
 
-(* TODO: more elegant? *)
+(* TODO: ugly? *)
 Lemma eval_equiv_weaker : exists (s1 s2 : stmt), s1 ~e~ s2 /\ ~ (s1 ~c~ s2).
-Proof. admit. Admitted.
+Proof.
+    exists SKIP, (Id 1 ::= Nat 0); split.
+  - intros i o; split; intros [st EX].
+    + inversion EX; subst; exists ([] [Id 1 <- 0%Z]); apply bs_Assign, bs_Nat.
+    + inversion EX; subst; exists ([] : state Z); apply bs_Skip.
+  - intro CEQ; specialize (CEQ (SeqL Hole (WHILE (Var (Id 1)) DO SKIP END)) ([]) ([]));
+    destruct CEQ; assert (OK : <| (Id 1 ::= Nat 0) ;; (WHILE (Var (Id 1)) DO SKIP END) |> ([]) => ([])).
+    { exists ([] [Id 1 <- 0%Z]).
+      apply bs_Seq with (([]) [Id 1 <- 0%Z], [], []).
+      - apply bs_Assign, bs_Nat.
+      - apply bs_While_False.
+        apply bs_Var, st_binds_hd. }
+    apply H0 in OK; destruct OK.
+    inversion H1; subst.
+    inversion STEP1; subst; inversion STEP2; subst; inversion CVAL; subst; inversion VAR.
+Qed.
 
 (* Big step equivalence *)
 Definition bs_equivalent (s1 s2 : stmt) :=
@@ -378,6 +393,66 @@ Qed.
 Definition equivalent_states (s1 s2 : state Z) :=
   forall id, Expr.equivalent_states s1 s2 id.
 
+(* bs_equiv_states helper 1 TODO: delete if i dont use it *)
+Lemma equiv_states_eval (e : expr) (s1 s2 : state Z) (z : Z) (HE : equivalent_states s1 s2)
+      (H  : [| e |] s1 => z) : [| e |] s2 => z.
+Proof.
+  induction H; econstructor; eauto; destruct (HE i z). apply H; assumption.
+Qed.
+
+(* bs_equiv_states helper 2 TODO: delete if i dont use it *)
+Lemma equiv_states_update (s1 s2 : state Z) (x : id) (z : Z) (HE : equivalent_states s1 s2) :
+  equivalent_states (s1 [x <- z]) (s2 [x <- z]).
+Proof.
+  intros y w; split; intro HB.
+  - destruct (HE y w); inversion HB; subst; [ apply st_binds_hd | apply st_binds_tl; auto ].
+  - destruct (HE y w); inversion HB; subst; [ apply st_binds_hd | apply st_binds_tl; auto ].
+Qed.
+
+(* bs_equiv_states helper 3 TODO: do smth with it *)
+Lemma bs_equiv_states_gen (s : stmt) (c c' : conf)
+      (H : c == s ==> c') :
+  forall (t1 t1' : state Z) (li lo : list Z)
+         (HC  : c = (t1, li, lo))
+         (HEQ : equivalent_states t1 t1'),
+  exists (t2 t2' : state Z) (li' lo' : list Z),
+    c' = (t2, li', lo') /\ equivalent_states t2 t2' /\
+    (t1', li, lo) == s ==> (t2', li', lo').
+Proof.
+  induction H; intros t1 t1' li lo HC HEQ.
+  - (* skip *) subst; do 4 eexists; split; [ reflexivity | split; [ exact HEQ | apply bs_Skip ] ].
+  - (* assign *) inversion HC; subst; do 4 eexists; split; [ reflexivity | split ].
+    + apply equiv_states_update. exact HEQ.
+    + apply bs_Assign. eapply equiv_states_eval; eauto.
+  - (* read *) inversion HC; subst; do 4 eexists; split; [ reflexivity | split ].
+    + apply equiv_states_update. exact HEQ.
+    + apply bs_Read.
+  - (* write *) inversion HC; subst; do 4 eexists; split; [ reflexivity | split; [ exact HEQ | ] ];
+    apply bs_Write; eapply equiv_states_eval; eauto.
+  - (* seq *) subst; edestruct IHbs_int1 as (m & m' & mi & mo & -> & HEm & RUN1); eauto;
+    edestruct IHbs_int2 as (f & f' & fi & fo & -> & HEf & RUN2); eauto;
+    do 4 eexists; split; [ reflexivity | split; [ exact HEf | ] ].
+    apply bs_Seq with (m', mi, mo); assumption.
+  - (* ite t *)
+    inversion HC; subst.
+    edestruct IHbs_int as (f & f' & fi & fo & -> & HEf & RUN); eauto; do 4 eexists;
+    split; [ reflexivity | split; [ exact HEf | ] ].
+    apply bs_If_True; [ eapply equiv_states_eval; eauto | exact RUN ].
+  - (* ite f *) inversion HC; subst; 
+    edestruct IHbs_int as (f & f' & fi & fo & -> & HEf & RUN); eauto.
+    do 4 eexists; split; [ reflexivity | split; [ exact HEf | ] ].
+    apply bs_If_False; [ eapply equiv_states_eval; eauto | exact RUN ].
+  - (* while t *) inversion HC; subst;
+    edestruct IHbs_int1 as (m & m' & mi & mo & -> & HEm & RUN1); eauto.
+    edestruct IHbs_int2 as (f & f' & fi & fo & -> & HEf & RUN2); eauto.
+    do 4 eexists.
+    split; [ reflexivity | split; [ exact HEf | ] ].
+    apply bs_While_True with (m', mi, mo);
+      [ eapply equiv_states_eval; eauto | exact RUN1 | exact RUN2 ].
+  - (* while f *) inversion HC; subst; do 4 eexists; split; [ reflexivity | split; [ exact HEQ | ] ].
+    apply bs_While_False. eapply equiv_states_eval; eauto.
+Qed.
+
 Lemma bs_equiv_states
   (s            : stmt)
   (i o i' o'    : list Z)
@@ -385,7 +460,10 @@ Lemma bs_equiv_states
   (HE1          : equivalent_states st1 st1')  
   (H            : (st1, i, o) == s ==> (st2, i', o')) :
   exists st2',  equivalent_states st2 st2' /\ (st1', i, o) == s ==> (st2', i', o').
-Proof. admit. Admitted.
+Proof.
+  destruct (bs_equiv_states_gen s _ _ H st1 st1' i o Logic.eq_refl HE1) as (t1 & t2 & li & lo & H_eq1 & H_eq2 & H_run). (*Show.*)
+  inversion H_eq1; subst; exists t2; split; assumption.
+Qed.
   
 (* Contextual equivalence is equivalent to the semantic one *)
 (* TODO: no longer needed *)
@@ -497,11 +575,45 @@ Module SmallStep.
         (STEP : c -- s --> (Some s', c'))
         (EXEC : c' == s' ==> c'') :
     c == s ==> c''.
-  Proof. admit. Admitted.
+  Proof.
+    remember (Some s', c') as R eqn:HR.
+    revert s' c' c'' HR EXEC.
+    induction STEP; intros t1 t2 t3 HR EXEC; inversion HR; subst.
+    - apply bs_Seq with t2; [ apply ss_bs_base; eassumption | exact EXEC ].
+    - inversion EXEC; subst; eapply bs_Seq; [ eapply IHSTEP; [ reflexivity | eassumption ] | eassumption ].
+    - apply bs_If_True; assumption.
+    - apply bs_If_False; assumption.
+    - inversion EXEC; subst.
+      + seq_inversion; eapply bs_While_True; eauto.
+      + match goal with
+        | HS : _ == SKIP ==> _ |- _ => inversion HS; subst
+        end; apply bs_While_False; assumption.
+  Qed.
   
   Theorem bs_ss_eq (s : stmt) (c c' : conf) :
     c == s ==> c' <-> c -- s -->> c'.
-  Proof. admit. Admitted.
+  Proof. 
+        split; intro H.
+    - (* => *) induction H.
+      + apply ss_int_Base, ss_Skip.
+      + apply ss_int_Base, ss_Assign; assumption.
+      + apply ss_int_Base, ss_Read.
+      + apply ss_int_Base, ss_Write; assumption.
+      + eapply ss_ss_composition; eassumption.
+      + eapply ss_int_Step; [ apply ss_If_True; eassumption | assumption ].
+      + eapply ss_int_Step; [ apply ss_If_False; eassumption | assumption ].
+      + (* while t *)
+        eapply ss_int_Step; [ apply ss_While | ].
+        eapply ss_int_Step; [ apply ss_If_True; eassumption | ].
+        eapply ss_ss_composition; eassumption.
+      + (* while f *)
+        eapply ss_int_Step; [ apply ss_While | ].
+        eapply ss_int_Step; [ apply ss_If_False; eassumption | ].
+        apply ss_int_Base, ss_Skip.
+    - (* <= *) induction H.
+      + apply ss_bs_base; assumption.
+      + eapply ss_bs_step; eassumption.
+  Qed.
   
 End SmallStep.
 
@@ -555,17 +667,41 @@ Module Renaming.
     (r         : Renaming.renaming)
     (c c'      : conf)
     (Hbs       : c == s ==> c') : (rename_conf r c) == rename r s ==> (rename_conf r c').
-  Proof. admit. Admitted.
+  Proof.
+    destruct r. induction Hbs; simpl.
+    - apply bs_Skip.
+    - apply bs_Assign; apply Renaming.eval_renaming_invariance; assumption.
+    - apply bs_Read.
+    - apply bs_Write; apply Renaming.eval_renaming_invariance; assumption.
+    - eapply bs_Seq; eassumption.
+    - apply bs_If_True; [ apply Renaming.eval_renaming_invariance; assumption | assumption ].
+    - apply bs_If_False; [ apply Renaming.eval_renaming_invariance; assumption | assumption ].
+    - eapply bs_While_True; [ apply Renaming.eval_renaming_invariance; assumption | eassumption | eassumption ].
+    - apply bs_While_False; apply Renaming.eval_renaming_invariance. assumption.
+  Qed.
   
   Lemma renaming_invariant_bs_inv
     (s         : stmt)
     (r         : Renaming.renaming)
     (c c'      : conf)
     (Hbs       : (rename_conf r c) == rename r s ==> (rename_conf r c')) : c == s ==> c'.
-  Proof. admit. Admitted.
+  Proof.
+    destruct (Renaming.renaming_inv r). (*Show.*)
+    assert (REV : forall c0 : conf, rename_conf x (rename_conf r c0) = c0).
+    { intros [[s0 i0] o0]; simpl; now rewrite (Renaming.re_rename_state x r H). }
+    apply (renaming_invariant_bs _ x) in Hbs.
+    rewrite (re_rename x r H) in Hbs; rewrite !REV in Hbs; exact Hbs.
+  Qed.
     
   Lemma renaming_invariant (s : stmt) (r : renaming) : s ~e~ (rename r s).
-  Proof. admit. Admitted.
+  Proof.
+    intros i o; split; intros [s' H].
+    - exists (Renaming.rename_state r s'). exact (renaming_invariant_bs s r ([], i, []) (s', [], o) H).
+    - destruct (Renaming.renaming_inv2 r). (*Show.*)
+      exists (Renaming.rename_state x s').
+      apply (renaming_invariant_bs_inv s r ([], i, []) (Renaming.rename_state x s', [], o)); simpl.
+      now rewrite (Renaming.re_rename_state r x H0).
+  Qed.
   
 End Renaming.
 
@@ -629,22 +765,59 @@ Inductive cps_int : cont -> cont -> conf -> conf -> Prop :=
                            (CSTEP : KEmpty |- (st, i, o) -- k --> c'),
     k |- (st, i, o) -- !(WHILE e DO s END) --> c'
 where "k |- c1 -- s --> c2" := (cps_int k s c1 c2).
-
-(* TODO: delete if not used *)
-Ltac cps_bs_gen_helper k H HH :=
-  destruct k eqn:K; subst; inversion H; subst;
-  [inversion EXEC; subst | eapply bs_Seq; eauto];
-  apply HH; auto.
-
-Lemma cps_empty_eq (c c' : conf) (EXEC : KEmpty |- c -- KEmpty --> c') : c = c'.
-Proof.
-  inversion EXEC; subst; reflexivity.
-Qed.
     
 Lemma cps_bs_gen (S : stmt) (c c' : conf) (S1 k : cont)
       (EXEC : k |- c -- S1 --> c') (DEF : !S = S1 @ k):
   c == S ==> c'.
-Proof. admit. Admitted.
+Proof.
+    induction EXEC in S, DEF.
+  - (* empty *) discriminate DEF.
+  - (* skip *)
+    destruct k; simpl in DEF; inversion DEF; subst.
+    + inversion EXEC; subst; apply bs_Skip.
+    + apply bs_Seq with c; [ apply bs_Skip | apply IHEXEC; reflexivity ].
+  - (* assign *)
+    destruct k; simpl in DEF; inversion DEF; subst.
+    + inversion EXEC; subst; apply bs_Assign; assumption.
+    + apply bs_Seq with ((s) [x <- n], i, o); [ apply bs_Assign; assumption | apply IHEXEC; reflexivity ].
+  - (* read *)
+    destruct k; simpl in DEF; inversion DEF; subst.
+    + inversion EXEC; subst; apply bs_Read.
+    + apply bs_Seq with ((s) [x <- z], i, o); [ apply bs_Read | apply IHEXEC; reflexivity ].
+  - (* write *)
+    destruct k; simpl in DEF; inversion DEF; subst.
+    + inversion EXEC; subst; apply bs_Write; assumption.
+    + apply bs_Seq with (s, i, z :: o); [ apply bs_Write; assumption | apply IHEXEC; reflexivity ].
+  - (* seq *)
+    destruct k; simpl in DEF; inversion DEF; subst.
+    + apply IHEXEC; reflexivity.
+    + assert (LIN: c == s1 ;; (s2 ;; s) ==> c') by (apply IHEXEC; reflexivity);
+      inversion LIN; subst; inversion STEP2; subst; eapply bs_Seq; [ eapply bs_Seq; eassumption | eassumption ].
+  - (* ite t *)
+    destruct k; simpl in DEF; inversion DEF; subst.
+    + apply bs_If_True; [ assumption | apply IHEXEC; reflexivity ].
+    + assert (REST: (s, i, o) == s1 ;; s0 ==> c') by (apply IHEXEC; reflexivity).
+      inversion REST; subst.
+      eapply bs_Seq; [ apply bs_If_True; eassumption | eassumption ].
+  - (* ite f *)
+    destruct k; simpl in DEF; inversion DEF; subst.
+    + apply bs_If_False; [ assumption | apply IHEXEC; reflexivity ].
+    + assert (REST: (s, i, o) == s2 ;; s0 ==> c') by (apply IHEXEC; reflexivity).
+      inversion REST; subst.
+      eapply bs_Seq; [ apply bs_If_False; eassumption | eassumption ].
+  - (* while t *)
+    destruct k; simpl in DEF; inversion DEF; subst.
+    + assert (BODY: (st, i, o) == s ;; (WHILE e DO s END) ==> c') by (apply IHEXEC; reflexivity).
+      inversion BODY; subst.
+      eapply bs_While_True; eassumption.
+    + assert (BODY: (st, i, o) == s ;; ((WHILE e DO s END) ;; s0) ==> c') by (apply IHEXEC; reflexivity).
+      inversion BODY; subst; inversion STEP2; subst.
+      eapply bs_Seq; [ eapply bs_While_True; eassumption | eassumption ].
+  - (* while f *)
+    destruct k; simpl in DEF; inversion DEF; subst.
+    + inversion EXEC; subst; apply bs_While_False; assumption.
+    + apply bs_Seq with (st, i, o); [ apply bs_While_False; assumption | apply IHEXEC; reflexivity ].
+Qed.
 
 Lemma cps_bs (s1 s2 : stmt) (c c' : conf) (STEP : !s2 |- c -- !s1 --> c'):
    c == s1 ;; s2 ==> c'.
@@ -694,7 +867,7 @@ Proof.
   - (* seq *) 
     apply cps_Seq; apply IHEXEC1; apply cps_cont_to_seq; rewrite kapp_empty_r; apply IHEXEC2;
     exact H_k.
-  - (* ite t *) apply cps_If_True;  [ assumption | apply IHEXEC; exact H_k ].
+  - (* ite t *) apply cps_If_True; [ assumption | apply IHEXEC; exact H_k ].
   - (* ite f *) apply cps_If_False; [ assumption | apply IHEXEC; exact H_k ].
   - (* while t *) 
     apply cps_While_True; [ assumption | ].
