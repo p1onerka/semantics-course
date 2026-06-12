@@ -469,6 +469,7 @@ Fixpoint label_occurs_once_rec (occured : bool) (n: nat) (p : prog) : bool :=
 
 Definition label_occurs_once (n : nat) (p : prog) : bool := label_occurs_once_rec false n p.
 
+(* well-formed *)
 Fixpoint prog_wf_rec (prog p : prog) : bool :=
   match p with
     []      => true
@@ -486,10 +487,52 @@ Lemma wf_app (p q  : prog)
              (l    : nat)
              (Hwf  : prog_wf_rec q p = true)
              (Hocc : label_occurs_once l q = true) : prog_wf_rec q (p ++ [JMP l]) = true.
-Proof. admit. Admitted.
+Proof.
+induction p; simpl in *.
+  - (* [] *) rewrite Hocc. auto.
+  - (* :: *) 
+    remember (match a with
+              | JMP l0 | JZ l0 | JNZ l0 => label_occurs_once l0 q
+              | _ => true
+              end) as check_a.
+    destruct check_a; simpl.
+    + exact (IHp Hwf).
+    + discriminate Hwf.
+Qed.
 
+(* TODO: VERY ugly *)
 Lemma wf_rev (p q : prog) (Hwf : prog_wf_rec q p = true) : prog_wf_rec q (rev p) = true.
-Proof. admit. Admitted.
+Proof. 
+  induction p; simpl in *.
+  - (* [] *)
+    reflexivity.
+  - (* :: *)
+    remember (match a with
+              | JMP l0 | JZ l0 | JNZ l0 => label_occurs_once l0 q
+              | _ => true
+              end) as check_a.
+    destruct check_a; simpl in *.
+    + assert (H_app_one : forall (ins : insn) (l_list : list insn),
+                 prog_wf_rec q l_list = true ->
+                 match ins with
+                 | JMP l0 | JZ l0 | JNZ l0 => label_occurs_once l0 q
+                 | _ => true
+                 end = true ->
+                 prog_wf_rec q (l_list ++ [ins]) = true).
+      { clear IHp Hwf Heqcheck_a a.
+        induction l_list; intros H_wf H_ins; simpl in *.
+        - rewrite H_ins. reflexivity.
+        - rename a into head, l_list into tail, IHl_list into IH_l.
+          remember (match head with
+                    | JMP l0 | JZ l0 | JNZ l0 => label_occurs_once l0 q
+                    | _ => true
+                    end) as check_head.
+          destruct check_head; simpl.
+          + exact (IH_l H_wf H_ins).
+          + discriminate H_wf. }
+      apply H_app_one; [exact (IHp Hwf) | symmetry; exact Heqcheck_a].
+    + discriminate Hwf.
+Qed.
 
 Fixpoint convert_straightline (p : StraightLine.prog) : prog :=
   match p with
@@ -498,7 +541,11 @@ Fixpoint convert_straightline (p : StraightLine.prog) : prog :=
   end.
 
 Lemma cons_comm_app (A : Type) (a : A) (l1 l2 : list A) : l1 ++ a :: l2 = (l1 ++ [a]) ++ l2.
-Proof. admit. Admitted.
+Proof.
+  induction l1; simpl.
+  - (* [] *) reflexivity.
+  - (* :: *) f_equal; exact IHl1.
+Qed.
 
 Definition compile_expr (e : expr) : prog :=
   convert_straightline (StraightLine.compile_expr e).
