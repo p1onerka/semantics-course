@@ -26,7 +26,6 @@ Notation "'COND' e 'THEN' s1 'ELSE' s2 'END'" := (If    e s1 s2) (at level 36, n
 Notation "'WHILE' e 'DO' s 'END'"             := (While e s    ) (at level 36, no associativity).
 
 (* Configuration *)
-(* consists of state, input, output *)
 Definition conf := (state Z * list Z * list Z)%type.
 
 (* Big-step evaluation relation *)
@@ -35,20 +34,15 @@ Reserved Notation "c1 '==' s '==>' c2" (at level 0).
 Notation "st [ x '<-' y ]" := (update Z st x y) (at level 0).
 
 Inductive bs_int : stmt -> conf -> conf -> Prop := 
-(* nothing changes *)
 | bs_Skip        : forall (c : conf), c == SKIP ==> c 
-(* eval expr e, then update state *)
 | bs_Assign      : forall (s : state Z) (i o : list Z) (x : id) (e : expr) (z : Z)
                           (VAL : [| e |] s => z),
                           (s, i, o) == x ::= e ==> (s [x <- z], i, o)
-(* take fst val from input stream, then update state *)
 | bs_Read        : forall (s : state Z) (i o : list Z) (x : id) (z : Z),
                           (s, z::i, o) == READ x ==> (s [x <- z], i, o)
-(* eval expr e, then put into output stream *)
 | bs_Write       : forall (s : state Z) (i o : list Z) (e : expr) (z : Z)
                           (VAL : [| e |] s => z),
                           (s, i, o) == WRITE e ==> (s, i, z::o)
-(* pipeline of config changes *)
 | bs_Seq         : forall (c c' c'' : conf) (s1 s2 : stmt)
                           (STEP1 : c == s1 ==> c') (STEP2 : c' == s2 ==> c''),
                           c ==  s1 ;; s2 ==> c''
@@ -73,14 +67,12 @@ where "c1 == s ==> c2" := (bs_int s c1 c2).
 #[export] Hint Constructors bs_int : core.
 
 (* "Surface" semantics *)
-(* from input i get ouput o, state st and empty input (basically fully eval program) *)
 Definition eval (s : stmt) (i o : list Z) : Prop :=
   exists st, ([], i, []) == s ==> (st, [], o).
 
 Notation "<| s |> i => o" := (eval s i o) (at level 0).
 
 (* "Surface" equivalence *)
-(* if one prog gives the same output as the other on the same input *)
 Definition eval_equivalent (s1 s2 : stmt) : Prop :=
   forall (i o : list Z),  <| s1 |> i => o <-> <| s2 |> i => o.
 
@@ -92,9 +84,7 @@ Inductive Context : Type :=
 | SeqL   : Context -> stmt -> Context
 | SeqR   : stmt -> Context -> Context
 | IfThen : expr -> Context -> stmt -> Context
-(* cond, then branch, else branch, after ITE *)
 | IfElse : expr -> stmt -> Context -> Context
-(* cond, inside loop, after loop *)
 | WhileC : expr -> Context -> Context.
 
 (* Plugging a statement into a context *)
@@ -116,13 +106,11 @@ Definition contextual_equivalent (s1 s2 : stmt) :=
 
 Notation "s1 '~c~' s2" := (contextual_equivalent s1 s2) (at level 42, no associativity).
 
-(* ~c~ => ~e~ *)
 Lemma contextual_equiv_stronger (s1 s2 : stmt) (H: s1 ~c~ s2) : s1 ~e~ s2.
 Proof.
   specialize (H Hole). simpl in H. exact H.
 Qed.
 
-(* TODO: ugly? *)
 Lemma eval_equiv_weaker : exists (s1 s2 : stmt), s1 ~e~ s2 /\ ~ (s1 ~c~ s2).
 Proof.
     exists SKIP, (Id 1 ::= Nat 0); split.
@@ -303,7 +291,6 @@ Proof.
     + eauto.
 Qed.
 
-(* TODO: more elegant? *)
 Lemma eq_congruence_while
       (e : expr) (s1 s2 : stmt) (EQ : s1 ~~~ s2) :
   WHILE e DO s1 END ~~~ WHILE e DO s2 END.
@@ -357,7 +344,6 @@ Ltac eval_zero_not_one :=
     eapply eval_deterministic; eauto
   end.
 
-(* TODO: more elegant? *)
 Lemma bs_int_deterministic (c c1 c2 : conf) (s : stmt)
       (EXEC1 : c == s ==> c1) (EXEC2 : c == s ==> c2) :
   c1 = c2.
@@ -371,36 +357,28 @@ Proof.
   - pose proof (eval_deterministic e s z z0 VAL VAL0). subst. reflexivity.
   - assert (c' = c'0) as EQ.
     { apply IHEXEC1_1. exact STEP1. } subst. apply IHEXEC1_2. exact STEP2.
-  (* if t t *)
   - apply IHEXEC1. exact STEP.
-  (* if t f *)
   - exfalso. pose proof (eval_deterministic e s Z.one Z.zero CVAL CVAL0). discriminate.
-  (* if f t *)
   - exfalso. pose proof (eval_deterministic e s Z.zero Z.one CVAL CVAL0). discriminate.
-  (* if f f *)
   - apply IHEXEC1. exact STEP.
-  (* while t t *)
   - assert (c' = c'0) as EQ.
     { apply IHEXEC1_1. exact STEP. } subst. apply IHEXEC1_2. exact WSTEP.
-  (* while t f *)
   - exfalso. pose proof (eval_deterministic e st Z.one Z.zero CVAL CVAL0). discriminate.
-  (* while f t *)
   - exfalso. pose proof (eval_deterministic e st Z.zero Z.one CVAL CVAL0). discriminate.
-  (* while f f *)
   - reflexivity.
 Qed.
 
 Definition equivalent_states (s1 s2 : state Z) :=
   forall id, Expr.equivalent_states s1 s2 id.
 
-(* bs_equiv_states helper 1 TODO: delete if i dont use it *)
+(* bs_equiv_states helper 1 *)
 Lemma equiv_states_eval (e : expr) (s1 s2 : state Z) (z : Z) (HE : equivalent_states s1 s2)
       (H  : [| e |] s1 => z) : [| e |] s2 => z.
 Proof.
   induction H; econstructor; eauto; destruct (HE i z). apply H; assumption.
 Qed.
 
-(* bs_equiv_states helper 2 TODO: delete if i dont use it *)
+(* bs_equiv_states helper 2 *)
 Lemma equiv_states_update (s1 s2 : state Z) (x : id) (z : Z) (HE : equivalent_states s1 s2) :
   equivalent_states (s1 [x <- z]) (s2 [x <- z]).
 Proof.
@@ -409,7 +387,7 @@ Proof.
   - destruct (HE y w); inversion HB; subst; [ apply st_binds_hd | apply st_binds_tl; auto ].
 Qed.
 
-(* bs_equiv_states helper 3 TODO: do smth with it *)
+(* bs_equiv_states helper 3 *)
 Lemma bs_equiv_states_gen (s : stmt) (c c' : conf)
       (H : c == s ==> c') :
   forall (t1 t1' : state Z) (li lo : list Z)
@@ -512,7 +490,6 @@ Module SmallStep.
                     c -- s --> (Some s', c') -> c' -- s' -->> c'' -> c -- s -->> c'' 
   where "c1 -- s -->> c2" := (ss_int s c1 c2).
 
-  (* TODO: more elegant? match? *)
   Lemma ss_int_step_deterministic (s : stmt)
         (c : conf) (c' c'' : option stmt * conf) 
         (EXEC1 : c -- s --> c')
@@ -565,10 +542,8 @@ Module SmallStep.
   Proof.
     generalize dependent s2. generalize dependent c'.
     induction STEP1; intros c''' s2 STEP2.
-    - (* basr *)
-      eapply ss_int_Step; [apply ss_Seq_Compl; exact H | exact STEP2].
-    - (* step *)
-      eapply ss_int_Step; [apply ss_Seq_InCompl; exact H | apply IHSTEP1; exact STEP2].
+    - eapply ss_int_Step; [apply ss_Seq_Compl; exact H | exact STEP2].
+    - eapply ss_int_Step; [apply ss_Seq_InCompl; exact H | apply IHSTEP1; exact STEP2].
   Qed.
   
   Lemma ss_bs_step (c c' c'' : conf) (s s' : stmt)
@@ -602,12 +577,10 @@ Module SmallStep.
       + eapply ss_ss_composition; eassumption.
       + eapply ss_int_Step; [ apply ss_If_True; eassumption | assumption ].
       + eapply ss_int_Step; [ apply ss_If_False; eassumption | assumption ].
-      + (* while t *)
-        eapply ss_int_Step; [ apply ss_While | ].
+      + eapply ss_int_Step; [ apply ss_While | ].
         eapply ss_int_Step; [ apply ss_If_True; eassumption | ].
         eapply ss_ss_composition; eassumption.
-      + (* while f *)
-        eapply ss_int_Step; [ apply ss_While | ].
+      + eapply ss_int_Step; [ apply ss_While | ].
         eapply ss_int_Step; [ apply ss_If_False; eassumption | ].
         apply ss_int_Base, ss_Skip.
     - (* <= *) induction H.
@@ -860,23 +833,21 @@ Lemma bs_int_to_cps_int_cont c1 c2 c3 s k
   k |- c1 -- !(s) --> c3.
 Proof.
   inversion STEP; subst; clear STEP; revert k c3 CSTEP; induction EXEC; intros k0 d H_k.
-  - (* skip *) apply cps_Skip. exact H_k.
-  - (* ssign *) eapply cps_Assign; [ eassumption | exact H_k ].
-  - (* read *) apply cps_Read. exact H_k.
-  - (* write *) eapply cps_Write; [ eassumption | exact H_k ].
-  - (* seq *) 
-    apply cps_Seq; apply IHEXEC1; apply cps_cont_to_seq; rewrite kapp_empty_r; apply IHEXEC2;
+  - apply cps_Skip. exact H_k.
+  - eapply cps_Assign; [ eassumption | exact H_k ].
+  - apply cps_Read. exact H_k.
+  - eapply cps_Write; [ eassumption | exact H_k ].
+  - apply cps_Seq; apply IHEXEC1; apply cps_cont_to_seq; rewrite kapp_empty_r; apply IHEXEC2;
     exact H_k.
-  - (* ite t *) apply cps_If_True; [ assumption | apply IHEXEC; exact H_k ].
-  - (* ite f *) apply cps_If_False; [ assumption | apply IHEXEC; exact H_k ].
-  - (* while t *) 
-    apply cps_While_True; [ assumption | ].
+  - apply cps_If_True; [ assumption | apply IHEXEC; exact H_k ].
+  - apply cps_If_False; [ assumption | apply IHEXEC; exact H_k ].
+  - apply cps_While_True; [ assumption | ].
     apply IHEXEC1.
     apply cps_cont_to_seq.
     rewrite kapp_empty_r.
     apply IHEXEC2.
     exact H_k.
-  - (* while f *) apply cps_While_False; [ assumption | exact H_k ].
+  - apply cps_While_False; [ assumption | exact H_k ].
 Qed.
 
 Lemma bs_int_to_cps_int st i o c' s (EXEC : (st, i, o) == s ==> c') :
