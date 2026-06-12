@@ -586,10 +586,28 @@ Module SmallStep.
 
   #[export] Hint Resolve ss_eval_binop : core.
 
+  Lemma ss_step_backward (s : state Z) (e e' : expr) (z : Z) (STEP : s |- e --> e')
+  (HV : [| e' |] s => z) : [| e |] s => z.
+  Proof.
+    generalize dependent z;
+    induction STEP; intros w HW; inversion HW; subst; try (econstructor; eauto; fail); assumption.
+  Qed.
+
   Lemma ss_eval_equiv (e : expr)
                       (s : state Z)
                       (z : Z) : [| e |] s => z <-> (s |- e -->> (Nat z)).
-  Proof. admit. Admitted.
+  Proof.
+        split; intro H.
+    - (* => *)
+      apply ss_reachable_eval; induction H; eauto.
+      all: eapply ss_reachable_trans;
+        [apply ss_subst_binop; eauto | eapply reach_step; [apply ss_Bop; econstructor; eauto | apply reach_base]].
+    - (* <= *)
+      remember (Nat z) as v eqn:Hv.
+      generalize dependent z; induction H; intros w Hw.
+      + injection Hw as ->. constructor.
+      + apply ss_step_backward with (e' := e'); auto.
+  Qed.
   
 End SmallStep.
 
@@ -780,8 +798,26 @@ Module Renaming.
       + exact IHst_binds.
   Qed.
   
+  (* TODO: ugly? *)
   Lemma eval_renaming_invariance (e : expr) (st : state Z) (z : Z) (r: renaming) :
     [| e |] st => z <-> [| rename_expr r e |] (rename_state r st) => z.
-  Proof. admit. Admitted.
+  Proof.
+    assert (L : forall (q : renaming) (s : state Z) (x : id) (v : Z) (HB : s / x => v),
+      (rename_state q s) / (rename_id q x) => v).
+    { intros [f Bf] s x v HB.
+      induction HB; simpl.
+      - apply st_binds_hd.
+      - apply st_binds_tl; [ | exact IHHB ].
+        intro Heq. apply H.
+        apply (bijective_injective f Bf). exact Heq. }
+    assert (FWD : forall (q : renaming) (e0 : expr) (s : state Z) (v : Z) (HV : [| e0 |] s => v),
+      [| rename_expr q e0 |] (rename_state q s) => v).
+    { intros q e0 s v HV. induction HV; simpl; econstructor; eauto. }
+    split; intro HV.
+    - apply FWD. exact HV.
+    - destruct (renaming_inv r) as [r' INV]. apply (FWD r') in HV.
+      rewrite (re_rename_expr r' r INV) in HV. rewrite (re_rename_state r' r INV) in HV.
+      exact HV.
+  Qed.
     
 End Renaming.
