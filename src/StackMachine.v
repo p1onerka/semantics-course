@@ -27,10 +27,10 @@ Module StraightLine.
   Inductive insn : Set :=
   | R  : insn
   | W  : insn
-  | C  : Z -> insn (* const *)
-  | L  : id -> insn (* load *)
-  | S  : id -> insn (* store *)
-  | B  : bop -> insn. (* do bop *)
+  | C  : Z -> insn
+  | L  : id -> insn
+  | S  : id -> insn
+  | B  : bop -> insn.
 
   (* Program *)
   Definition prog := list insn.
@@ -213,7 +213,7 @@ Module StraightLine.
     induction VAL; intros s0 p0 Ex; simpl; 
     try (rewrite <- !app_assoc; eapply IHVAL1; eapply IHVAL2; simpl; econstructor; eauto; fail);
     try (econstructor; eauto).
-    all: try (econstructor; [ solve_z_dec | exact Ex ]). (* TODO: find if this can be safely deleted *)
+    all: try (econstructor; [ solve_z_dec | exact Ex ]).
   Qed.
 
   #[export] Hint Resolve compiled_expr_correct_cont.
@@ -227,7 +227,6 @@ Module StraightLine.
     apply (compiled_expr_correct_cont e st s i o n nil); eauto; repeat constructor.
   Qed.
   
-  (* TODO: more elegant? *)
   Lemma compiled_expr_not_incorrect_cont
         (e : expr) (st : state Z) (s i o : list Z) (p : prog) (c : conf)
         (EXEC : (s, st, i, o) -- compile_expr e ++ p --> c) :
@@ -254,7 +253,7 @@ Module StraightLine.
       + (* div *) exists (Z.div za zb). split; [econstructor; eauto | exact EXEC0].
       + (* mod *) exists (Z.modulo za zb). split; [econstructor; eauto | exact EXEC0].
       + (* and *) exists (za * zb)%Z. split; [econstructor; eauto | exact EXEC0].
-      + (* or *)  exists (zor za zb).   split; [econstructor; eauto | exact EXEC0].
+      + (* or *) exists (zor za zb). split; [econstructor; eauto | exact EXEC0].
   Qed.
   
   Lemma compiled_expr_not_incorrect
@@ -293,23 +292,18 @@ Module StraightLine.
         (EXEC : ([], st', i', o') -- q --> c) :
     ([], st, i, o) -- (compile p Sp) ++ q --> c.
   Proof.
-    (* TODO: ugly *)
     generalize dependent q; generalize dependent c; generalize dependent st; 
     generalize dependent i; generalize dependent o;generalize dependent st'; 
     generalize dependent i'; generalize dependent o'.
 
     induction Sp; intros o' i' st' o i st H c q EXEC; simpl. (*Show.*)
-    - (* assn *)
-      inversion H; subst; clear H; rewrite <- !app_assoc;
+    - inversion H; subst; clear H; rewrite <- !app_assoc;
       eapply compiled_expr_correct_cont; eauto; simpl; econstructor; exact EXEC.
-    - (* read *)
-      inversion H; subst; clear H; simpl; econstructor; econstructor; exact EXEC.
-    - (* write *)
-      inversion H; subst; clear H; rewrite <- !app_assoc; eapply compiled_expr_correct_cont; 
+    - inversion H; subst; clear H; simpl; econstructor; econstructor; exact EXEC.
+    - inversion H; subst; clear H; rewrite <- !app_assoc; eapply compiled_expr_correct_cont; 
       eauto; simpl; econstructor; exact EXEC.
-    - (* skip *) inversion H; subst; clear H; exact EXEC.
-    - (* seq *)
-      inversion H; subst; clear H; rewrite <- !app_assoc;
+    - inversion H; subst; clear H; exact EXEC.
+    - inversion H; subst; clear H; rewrite <- !app_assoc;
       destruct c' as [[st_mid i_mid] o_mid]; eapply IHSp1.
       + exact STEP1.
       + eapply IHSp2.
@@ -332,7 +326,6 @@ Module StraightLine.
         (EXEC: ([], st, i, o) -- (compile p Sp) ++ q --> c) :
     exists (st' : state Z) (i' o' : list Z), (st, i, o) == p ==> (st', i', o') /\ ([], st', i', o') -- q --> c.
   Proof.
-    (* TODO: ugly!! *)
     generalize dependent q; generalize dependent st; generalize dependent i; 
     generalize dependent o; generalize dependent c.
 
@@ -469,7 +462,6 @@ Fixpoint label_occurs_once_rec (occured : bool) (n: nat) (p : prog) : bool :=
 
 Definition label_occurs_once (n : nat) (p : prog) : bool := label_occurs_once_rec false n p.
 
-(* well-formed *)
 Fixpoint prog_wf_rec (prog p : prog) : bool :=
   match p with
     []      => true
@@ -500,7 +492,6 @@ induction p; simpl in *.
     + discriminate Hwf.
 Qed.
 
-(* TODO: VERY ugly *)
 Lemma wf_rev (p q : prog) (Hwf : prog_wf_rec q p = true) : prog_wf_rec q (rev p) = true.
 Proof. 
   induction p; simpl in *.
