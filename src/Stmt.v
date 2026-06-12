@@ -165,30 +165,67 @@ Module SmokeTest.
     - (* <= *) inversion_clear H; [inversion_clear STEP | inversion_clear STEP]; eauto.
   Qed.
       
+  Fixpoint while_false_go (e : expr) (s : stmt) (c cfin : conf) (EXEC : c == WHILE e DO s END ==> cfin) {struct EXEC}
+           :[| e |] (let '(st, _, _) := cfin in st) => Z.zero :=
+    match EXEC with
+    | bs_While_False st' i' o' e' s' CVAL => CVAL
+    | bs_While_True st' i' o' c' cfin' e' s' CVAL STEP WSTEP =>
+        while_false_go e' s' c' cfin' WSTEP
+    end.
+
   (* Terminating loop invariant *)
   Lemma while_false (e : expr) (s : stmt) (st : state Z)
         (i o : list Z) (c : conf)
         (EXE : c == WHILE e DO s END ==> (st, i, o)) :
     [| e |] st => Z.zero.
-  Proof. admit. Admitted.
-  
+  Proof.
+    simpl. apply (while_false_go e s c (st, i, o) EXE).
+  Qed.
+
   (* Big-step semantics does not distinguish non-termination from stuckness *)
   Lemma loop_eq_undefined :
     (WHILE (Nat 1) DO SKIP END) ~~~
     (COND (Nat 3) THEN SKIP ELSE SKIP END).
-  Proof. admit. Admitted.
+  Proof. 
+    unfold bs_equivalent. intros c c'. split; intro EXE. (*Show.*)
+  - (* => *)
+    destruct c' as [[st x] o].
+    pose proof (while_false (Nat 1) SKIP st x o c EXE) as H_f.
+    inversion H_f.
+  - (* <= *)
+    inversion EXE; subst.
+    + inversion STEP; subst. inversion CVAL.
+    + inversion CVAL.
+  Qed.
   
   (* Loops with equivalent bodies are equivalent *)
   Lemma while_eq (e : expr) (s1 s2 : stmt)
         (EQ : s1 ~~~ s2) :
     WHILE e DO s1 END ~~~ WHILE e DO s2 END.
-  Proof. admit. Admitted.
+  Proof.
+    unfold bs_equivalent; intros c c'; split; intro EXE.
+    - remember (WHILE e DO s1 END) as loop eqn:H_loop.
+      induction EXE; try discriminate; inversion H_loop; subst.
+      + apply EQ in EXE1.
+        assert (NEXT: c' == WHILE e DO s2 END ==> c'') by (apply IHEXE2; reflexivity).
+        eapply bs_While_True; eauto.
+      + eapply bs_While_False; eauto.
+    - remember (WHILE e DO s2 END) as loop eqn:H_loop.
+      induction EXE; try discriminate; inversion H_loop; subst.
+      + apply EQ in EXE1.
+        assert (NEXT: c' == WHILE e DO s1 END ==> c'') by (apply IHEXE2; reflexivity).
+        eapply bs_While_True; eauto.
+      + eapply bs_While_False; eauto.
+  Qed.
   
   (* Loops with the constant true condition don't terminate *)
   (* Exercise 4.8 from Winskel's *)
   Lemma while_true_undefined c s c' :
     ~ c == WHILE (Nat 1) DO s END ==> c'.
-  Proof. admit. Admitted.
+  Proof. 
+    destruct c' as [[st x] o]. intro EXE.
+    pose proof (while_false (Nat 1) s st x o c EXE) as HF. inversion HF.
+  Qed.
   
 End SmokeTest.
 
@@ -305,10 +342,38 @@ Ltac eval_zero_not_one :=
     eapply eval_deterministic; eauto
   end.
 
+(* TODO: more elegant? *)
 Lemma bs_int_deterministic (c c1 c2 : conf) (s : stmt)
       (EXEC1 : c == s ==> c1) (EXEC2 : c == s ==> c2) :
   c1 = c2.
-Proof. admit. Admitted.
+Proof. 
+  generalize dependent c2.
+  induction EXEC1; intros c2 EXEC2;
+    inversion EXEC2; subst.
+  - reflexivity.
+  - pose proof (eval_deterministic e s z z0 VAL VAL0). subst. reflexivity.
+  - reflexivity.
+  - pose proof (eval_deterministic e s z z0 VAL VAL0). subst. reflexivity.
+  - assert (c' = c'0) as EQ.
+    { apply IHEXEC1_1. exact STEP1. } subst. apply IHEXEC1_2. exact STEP2.
+  (* if t t *)
+  - apply IHEXEC1. exact STEP.
+  (* if t f *)
+  - exfalso. pose proof (eval_deterministic e s Z.one Z.zero CVAL CVAL0). discriminate.
+  (* if f t *)
+  - exfalso. pose proof (eval_deterministic e s Z.zero Z.one CVAL CVAL0). discriminate.
+  (* if f f *)
+  - apply IHEXEC1. exact STEP.
+  (* while t t *)
+  - assert (c' = c'0) as EQ.
+    { apply IHEXEC1_1. exact STEP. } subst. apply IHEXEC1_2. exact WSTEP.
+  (* while t f *)
+  - exfalso. pose proof (eval_deterministic e st Z.one Z.zero CVAL CVAL0). discriminate.
+  (* while f t *)
+  - exfalso. pose proof (eval_deterministic e st Z.zero Z.one CVAL CVAL0). discriminate.
+  (* while f f *)
+  - reflexivity.
+Qed.
 
 Definition equivalent_states (s1 s2 : state Z) :=
   forall id, Expr.equivalent_states s1 s2 id.
@@ -369,26 +434,64 @@ Module SmallStep.
                     c -- s --> (Some s', c') -> c' -- s' -->> c'' -> c -- s -->> c'' 
   where "c1 -- s -->> c2" := (ss_int s c1 c2).
 
+  (* TODO: more elegant? match? *)
   Lemma ss_int_step_deterministic (s : stmt)
         (c : conf) (c' c'' : option stmt * conf) 
         (EXEC1 : c -- s --> c')
         (EXEC2 : c -- s --> c'') :
     c' = c''.
-  Proof. admit. Admitted.
+  Proof.
+    revert c'' EXEC2.
+    induction EXEC1; intros c'' EXEC2;
+    inversion EXEC2; subst.
+    - reflexivity.
+    - pose proof (eval_deterministic e s z z0 SVAL SVAL0); subst; reflexivity.
+    - reflexivity.
+    - pose proof (eval_deterministic e s z z0 SVAL SVAL0); subst; reflexivity.
+    - specialize (IHEXEC1 _ SSTEP). inversion IHEXEC1; reflexivity.
+    - specialize (IHEXEC1 _ SSTEP). inversion IHEXEC1.
+    - specialize (IHEXEC1 _ SSTEP). inversion IHEXEC1.
+    - specialize (IHEXEC1 _ SSTEP). inversion IHEXEC1; reflexivity.
+    - reflexivity.
+    - exfalso; pose proof (eval_deterministic e s Z.one Z.zero SCVAL SCVAL0); discriminate.
+    - exfalso; pose proof (eval_deterministic e s Z.zero Z.one SCVAL SCVAL0); discriminate.
+    - reflexivity.
+    - reflexivity.
+  Qed.
   
   Lemma ss_int_deterministic (c c' c'' : conf) (s : stmt)
         (STEP1 : c -- s -->> c') (STEP2 : c -- s -->> c'') :
     c' = c''.
-  Proof. admit. Admitted.
+  Proof.
+    generalize dependent c''. induction STEP1; intros c_final STEP2; inversion STEP2; subst.
+    all: repeat match goal with
+      | [ H1 : ?C -- ?S --> (?X, ?Y), H2 : ?C -- ?S --> (?Unit, ?Z) |- _ ] =>
+          assert (H_eq : (X, Y) = (Unit, Z)) by (eapply ss_int_step_deterministic; eauto);
+          inversion H_eq; subst; clear H_eq H1
+      end; try reflexivity. apply IHSTEP1. assumption.
+  Qed.
   
   Lemma ss_bs_base (s : stmt) (c c' : conf) (STEP : c -- s --> (None, c')) :
     c == s ==> c'.
-  Proof. admit. Admitted.
+  Proof. 
+    inversion STEP; subst.
+    - (* skip *) econstructor.
+    - (* assign *) econstructor. exact SVAL.
+    - (* read *) econstructor.
+    - (* write *) econstructor. exact SVAL.
+  Qed.
 
   Lemma ss_ss_composition (c c' c'' : conf) (s1 s2 : stmt)
         (STEP1 : c -- s1 -->> c'') (STEP2 : c'' -- s2 -->> c') :
     c -- s1 ;; s2 -->> c'. 
-  Proof. admit. Admitted.
+  Proof.
+    generalize dependent s2. generalize dependent c'.
+    induction STEP1; intros c''' s2 STEP2.
+    - (* basr *)
+      eapply ss_int_Step; [apply ss_Seq_Compl; exact H | exact STEP2].
+    - (* step *)
+      eapply ss_int_Step; [apply ss_Seq_InCompl; exact H | apply IHSTEP1; exact STEP2].
+  Qed.
   
   Lemma ss_bs_step (c c' c'' : conf) (s s' : stmt)
         (STEP : c -- s --> (Some s', c'))
