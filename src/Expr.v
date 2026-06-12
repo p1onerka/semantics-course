@@ -1,5 +1,6 @@
 Require Import FinFun.
 Require Import BinInt ZArith_dec.
+Require Import Stdlib.Program.Equality.
 Require Export Id.
 Require Export State.
 Require Export Lia.
@@ -250,7 +251,14 @@ Lemma defined_expression
       (RED : [| e |] s => z)
       (ID  : id ? e) :
   exists z', s / id => z'.
-Proof. admit. Admitted.
+Proof.
+  induction RED; simpl; try (inversion ID; subst; eauto).
+  all: try 
+    (inversion ID; subst;
+    match goal with
+    | H : _ ? _ \/ _ ? _ |- _ => destruct H end;
+    [eapply IHRED1 | eapply IHRED2]; assumption).
+Qed.
 
 (* If a variable in expression is undefined in some state, then the expression
    is undefined is that state as well
@@ -269,22 +277,18 @@ Qed.
 Lemma eval_deterministic (e : expr) (s : state Z) (z1 z2 : Z) 
       (E1 : [| e |] s => z1) (E2 : [| e |] s => z2) :
   z1 = z2.
-Proof. 
-  (*revert z2 E2.
-  induction E1;
-  intros;
-  inversion E2;
-  subst;
-  try congruence;
-  try lia.
-  (* var *)
-  eapply state_deterministic; eauto. Show.
-  (* arith *)
-  specialize (IHE1_1 _ VALA).
-  specialize (IHE1_2 _ VALB).
-  subst.
-  lia. Show.
-Qed.*) admit. Admitted.
+Proof.
+  generalize dependent z1. generalize dependent z2.
+  induction e; intros.
+  - (* num *)
+    inversion E1; inversion E2; subst; lia.
+  - (* var *)
+    inversion E1. inversion E2; apply (state_deterministic Z s i z1 z2); auto.
+  - (* bop *)
+    destruct b; inversion E1; inversion E2;
+    specialize (IHe1 _ VALA _ VALA0); specialize (IHe2 _ VALB _ VALB0);
+    subst; solve [contradiction | auto]. 
+Qed.
 
 (* Equivalence of states w.r.t. an identifier *)
 (* every given id has the same meaning in both states *)
@@ -518,24 +522,47 @@ Module SmallStep.
                          (z z' : Z)
                          (H1   : s |- e --> (Nat z))
                          (H2   : s |- e --> e') : e' = Nat z.
-  Proof. admit. Admitted.
+  Proof.
+    inversion H1; subst. (*Show.*)
+    - (* var *) inversion H2; subst; remember (state_deterministic Z s i z z0 VAL VAL0); subst; congruence.
+    - (* bop *) inversion H2; subst; [inversion LEFT | inversion RIGHT 
+        | remember (eval_deterministic (Bop op (Nat zl) (Nat zr)) s z z0 EVAL EVAL0); subst; congruence].
+  Qed.
   
   Lemma ss_eval_stops_at_value (st : state Z) (e e': expr) (Heval: st |- e -->> e') : is_value e'.
-  Proof. admit. Admitted.
+  Proof.
+    induction Heval.
+    - apply isv_Intro.   
+    - exact IHHeval.
+  Qed.
 
   Lemma ss_subst s C e e' (HR: s |- e ~~> e') : s |- (C <~ e) ~~> (C <~ e').
-  Proof. admit. Admitted.
+  Proof.
+    induction C; simpl.
+    - (* hole *) exact HR.
+    - (* bopl *) induction IHC; eauto.
+    - (* bopr *) induction IHC; eauto.
+  Qed.
    
   Lemma ss_subst_binop s e1 e2 e1' e2' op (HR1: s |- e1 ~~> e1') (HR2: s |- e2 ~~> e2') :
     s |- (Bop op e1 e2) ~~> (Bop op e1' e2').
-  Proof. admit. Admitted.
+  Proof.
+    eapply (ss_reachable_trans s (Bop op e1 e2) (Bop op e1' e2) (Bop op e1' e2')).
+    - apply (ss_subst s (BopL op Hole e2)). exact HR1.
+    - apply (ss_subst s (BopR op e1' Hole)). exact HR2.
+  Qed.
 
   Lemma ss_bop_reachable s e1 e2 op za zb z
     (H : [|Bop op e1 e2|] s => (z))
     (VALA : [|e1|] s => (za))
     (VALB : [|e2|] s => (zb)) :
     s |- (Bop op (Nat za) (Nat zb)) ~~> (Nat z).
-  Proof. admit. Admitted.
+  Proof.
+    inversion H; subst;
+    rewrite (eval_deterministic e1 s za za0 VALA VALA0); subst;
+    rewrite (eval_deterministic e2 s zb zb0 VALB VALB0); subst; 
+    eauto.
+  Qed.
 
   #[export] Hint Resolve ss_bop_reachable : core.
    
@@ -546,10 +573,19 @@ Module SmallStep.
         (VALA : [|e1|] s => (za))
         (VALB : [|e2|] s => (zb)) :
         s |- Bop op e1 e2 -->> (Nat z).
-  Proof. admit. Admitted.
+  Proof.
+    apply ss_reachable_eval. eapply ss_reachable_trans. (*Show.*)
+    - (* bop -> e' *) apply ss_subst_binop.
+      + apply ss_eval_reachable. exact IHe1.
+      + apply ss_eval_reachable. exact IHe2. 
+    - (* e' -> z *) eapply ss_bop_reachable.
+      + exact H.
+      + exact VALA.
+      + exact VALB.
+  Qed.
 
   #[export] Hint Resolve ss_eval_binop : core.
-  
+
   Lemma ss_eval_equiv (e : expr)
                       (s : state Z)
                       (z : Z) : [| e |] s => z <-> (s |- e -->> (Nat z)).
