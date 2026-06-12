@@ -738,7 +738,12 @@ Inductive cps_int : cont -> cont -> conf -> conf -> Prop :=
                            (CSTEP : KEmpty |- (st, i, o) -- k --> c'),
     k |- (st, i, o) -- !(WHILE e DO s END) --> c'
 where "k |- c1 -- s --> c2" := (cps_int k s c1 c2).
-    
+
+Ltac cps_bs_gen_helper k H HH :=
+  destruct k eqn:K; subst; inversion H; subst;
+  [inversion EXEC; subst | eapply bs_Seq; eauto];
+  apply HH; auto.
+  
 Lemma cps_bs_gen (S : stmt) (c c' : conf) (S1 k : cont)
       (EXEC : k |- c -- S1 --> c') (DEF : !S = S1 @ k):
   c == S ==> c'.
