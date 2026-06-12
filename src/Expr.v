@@ -47,10 +47,8 @@ Notation "x '[/=]' y" := (Bop Ne  x y) (at level 39, no associativity).
 Notation "x '[&]'  y" := (Bop And x y) (at level 38, left associativity).
 Notation "x '[\/]' y" := (Bop Or  x y) (at level 38, left associativity).
 
-(* finds if value is 0 or 1 => can be used as bool *)
 Definition zbool (x : Z) : Prop := x = Z.one \/ x = Z.zero.
-  
-(* logical "or" with numbers: if 1 <= x+y then 1 else 0 *)
+
 Definition zor (x y : Z) : Z :=
   if Z_le_gt_dec (Z.of_nat 1) (x + y) then Z.one else Z.zero.
 
@@ -59,14 +57,11 @@ Notation "st / x => y" := (st_binds Z st x y) (at level 0).
 
 (* Big-step evaluation relation *)
 Inductive eval : expr -> state Z -> Z -> Prop := 
-  (* const evals into itself *)
   bs_Nat  : forall (s : state Z) (n : Z), [| Nat n |] s => n
 
-(* variable evals into its value *)
 | bs_Var  : forall (s : state Z) (i : id) (z : Z) (VAR : s / i => z),
     [| Var i |] s => z
 
-(* same as bs_Var but for arithmetics *)
 | bs_Add  : forall (s : state Z) (a b : expr) (za zb : Z)
                    (VALA : [| a |] s => za)
                    (VALB : [| b |] s => zb),
@@ -94,7 +89,6 @@ Inductive eval : expr -> state Z -> Z -> Prop :=
                    (NZERO : ~ zb = Z.zero),
     [| a [%] b |] s => (Z.modulo za zb)
 
-(* logical opers *)
 | bs_Le_T : forall (s : state Z) (a b : expr) (za zb : Z)
                    (VALA : [| a |] s => za)
                    (VALB : [| b |] s => zb)
@@ -186,25 +180,29 @@ where "[| e |] st => z" := (eval e st z).
 
 Module SmokeTest.
 
-  (* not true if var doesnt exist! TODO: rewrite *)
+  (* not true. proof below *)
   Lemma zero_always x (s : state Z) : [| Var x [*] Nat 0 |] s => Z.zero.
   Proof. Abort.
+
+  Lemma zero_always_is_wrong: (exists x (s: state Z), ~([| Var x [*] Nat 0 |] s => Z.zero)).
+  Proof.
+    exists (Id 0); exists [].
+    intros H_eval; inversion H_eval; subst; inversion VALA; subst; inversion VAR.
+  Qed.
   
   Lemma nat_always n (s : state Z) : [| Nat n |] s => n.
   Proof.
     constructor.
   Qed.
   
-  (* 2x = x+x *)
   Lemma double_and_sum (s : state Z) (e : expr) (z : Z)
         (HH : [| e [*] (Nat 2) |] s => z) :
     [| e [+] e |] s => z.
   Proof.
-      inversion HH; subst. (* bs_Mul => (za * zb), subst => z <- (za*zb) *)
-      inversion VALB; subst. (* bs_Nat, subst => zb <- 2 *)
-      replace (za * 2)%Z with (za + za)%Z by lia. (* replace 2x -> x+x via lia *)
+      inversion HH; subst.
+      inversion VALB; subst.
+      replace (za * 2)%Z with (za + za)%Z by lia.
       constructor; assumption.
-  (*Show.*)
   Qed.
   
 End SmokeTest.
@@ -218,12 +216,11 @@ Inductive subexpr : expr -> expr -> Prop :=
 | subexpr_right : forall e e' e'' : expr, forall op : bop, e << e'' -> e << (Bop op e' e'')
 where "e1 << e2" := (subexpr e1 e2).
 
-(* if (e is sibexpr of e', e evals into z) then exists z' that e' evals into *)
 Lemma strictness (e e' : expr) (HSub : e' << e) (st : state Z) (z : Z) (HV : [| e |] st => z) :
   exists z' : Z, [| e' |] st => z'.
 Proof.
-  revert st z HV. (* "generalize" for identifiers. basically forall quantifier *)
-  induction HSub. (* spawns 3 cases: refl, left, right *)
+  revert st z HV.
+  induction HSub.
   - intros st z HV.
     exists z.
     exact HV.
@@ -291,16 +288,9 @@ Proof.
 Qed.
 
 (* Equivalence of states w.r.t. an identifier *)
-(* every given id has the same meaning in both states *)
 Definition equivalent_states (s1 s2 : state Z) (id : id) :=
   forall z : Z, s1 /id => z <-> s2 / id => z.
 
-(* helper for bops. TODO: delete it if i dontt use it *)
-(*Lemma FV_bop op a b id :
-  id ? a \/ id ? b -> id ? (Bop op a b).
-Proof. eauto. Qed.*)
-
-(* if states are equivalent, expr e will eval into same thing *)
 Lemma variable_relevance (e : expr) (s1 s2 : state Z) (z : Z)
       (FV : forall (id : id) (ID : id ? e),
           equivalent_states s1 s2 id)
@@ -318,7 +308,6 @@ Proof.
     try (eapply IHe2; eauto; intros; apply FV; right; auto).
 Qed.
 
-(* exprs are equivalent if they eval into the same thing *)
 Definition equivalent (e1 e2 : expr) : Prop :=
   forall (n : Z) (s : state Z), 
     [| e1 |] s => n <-> [| e2 |] s => n.
@@ -353,7 +342,6 @@ Inductive Context : Type :=
 | BopL : bop -> Context -> expr -> Context
 | BopR : bop -> expr -> Context -> Context.
 
-(* insert expr into hole *)
 Fixpoint plug (C : Context) (e : expr) : expr := 
   match C with
   | Hole => e
@@ -363,7 +351,6 @@ Fixpoint plug (C : Context) (e : expr) : expr :=
 
 Notation "C '<~' e" := (plug C e) (at level 43, no associativity).
 
-(* e1 and e2 make equivalent exprs after being plugged into any given context *)
 Definition contextual_equivalent (e1 e2 : expr) : Prop :=
   forall (C : Context), (C <~ e1) ~~ (C <~ e2).
 
@@ -447,7 +434,7 @@ Module SmallStep.
     remember (Nat z).
     induction HR.
     - (* base *) subst; constructor.
-    - (* step *) apply se_Step with e'. (*Show.*)
+    - (* step *) apply se_Step with e'.
         + assumption.
         + apply IHHR; assumption.
   Qed.
@@ -486,10 +473,9 @@ Module SmallStep.
     {
       intros s [e' Hstep].
       inversion Hstep; subst.
-      - (* left *) inversion LEFT.
-      - (* right *) inversion RIGHT.
-      - (* bop *)
-        inversion EVAL; subst.
+      - inversion LEFT.
+      - inversion RIGHT.
+      - inversion EVAL; subst.
         inversion VALB; subst.
         contradiction.
     }
@@ -575,10 +561,10 @@ Module SmallStep.
         s |- Bop op e1 e2 -->> (Nat z).
   Proof.
     apply ss_reachable_eval. eapply ss_reachable_trans. (*Show.*)
-    - (* bop -> e' *) apply ss_subst_binop.
+    - apply ss_subst_binop.
       + apply ss_eval_reachable. exact IHe1.
       + apply ss_eval_reachable. exact IHe2. 
-    - (* e' -> z *) eapply ss_bop_reachable.
+    - eapply ss_bop_reachable.
       + exact H.
       + exact VALA.
       + exact VALB.
@@ -626,7 +612,7 @@ Module StaticSemantics.
 
   Lemma subtype_trans t1 t2 t3 (H1: t1 << t2) (H2: t2 << t3) : t1 << t3.
   Proof.
-    inversion H1; subst. (*Show.*)
+    inversion H1; subst.
     - exact H2.
     - inversion H2; subst. constructor.
   Qed.
@@ -662,7 +648,6 @@ Module StaticSemantics.
   Lemma type_preservation e t t' (HS: t' << t) (HT: e :-: t) : forall st e' (HR: st |- e ~~> e'), e' :-: t'.
   Proof. Abort.
 
-  (* TODO: more elegant? *)
   Theorem type_preservation_is_wrong: 
     ~ (forall e t t' (HS: t' << t) (HT: e :-: t), forall st e' (HR: st |- e ~~> e'), e' :-: t').
   Proof.
@@ -680,12 +665,11 @@ Module StaticSemantics.
     apply HNbool. unfold zbool. left. reflexivity.
   Qed.
 
-  (* TODO: more elegant? *)
   Lemma type_bool e (HT : e :-: Bool) :
     forall st z (HVal: [| e |] st => z), zbool z.
   Proof.
     remember Bool as t.
-    induction HT; intros st ? HVal; try discriminate; try (inversion HVal; subst; unfold zbool; tauto). 
+    induction HT; intros st ? HVal; try discriminate; try (inversion HVal; subst; unfold zbool; tauto).
     - (* and *)
       inversion HVal; subst; unfold zbool.
       assert (H_za : zbool za) by eauto.
@@ -709,7 +693,6 @@ Module Renaming.
 
   Definition renamings_inv (r r' : renaming) := forall (x : id), rename_id r (rename_id r' x) = x.
   
-  (* r^(-1) exists *)
   Lemma renaming_inv (r : renaming) : exists (r' : renaming), renamings_inv r' r.
   Proof.
     destruct r as [f [g [H_fst H_snd]]]. (*Show.*)
@@ -738,7 +721,7 @@ Module Renaming.
     (Hinv : renamings_inv r r')
     (e    : expr) : rename_expr r (rename_expr r' e) = e.
   Proof.
-    induction e; simpl. (*Show.*)
+    induction e; simpl.
     - (* num *)
       reflexivity.
     - (* var *)
@@ -798,7 +781,6 @@ Module Renaming.
       + exact IHst_binds.
   Qed.
   
-  (* TODO: ugly? *)
   Lemma eval_renaming_invariance (e : expr) (st : state Z) (z : Z) (r: renaming) :
     [| e |] st => z <-> [| rename_expr r e |] (rename_state r st) => z.
   Proof.
