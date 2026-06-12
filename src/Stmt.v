@@ -122,9 +122,9 @@ Proof.
   specialize (H Hole). simpl in H. exact H.
 Qed.
 
+(* TODO: more elegant? *)
 Lemma eval_equiv_weaker : exists (s1 s2 : stmt), s1 ~e~ s2 /\ ~ (s1 ~c~ s2).
-Proof.
-admit. Admitted.
+Proof. admit. Admitted.
 
 (* Big step equivalence *)
 Definition bs_equivalent (s1 s2 : stmt) :=
@@ -150,12 +150,20 @@ Module SmokeTest.
   (* Associativity of sequential composition *)
   Lemma seq_assoc (s1 s2 s3 : stmt) :
     ((s1 ;; s2) ;; s3) ~~~ (s1 ;; (s2 ;; s3)).
-  Proof. admit. Admitted.
+  Proof.
+    unfold bs_equivalent; intros c c'; split; intro H.
+    - (* => *) inversion_clear H; inversion_clear STEP1; eauto.
+    - (* <= *) inversion_clear H; inversion_clear STEP2; eauto.
+  Qed.
   
   (* One-step unfolding *)
   Lemma while_unfolds (e : expr) (s : stmt) :
     (WHILE e DO s END) ~~~ (COND e THEN s ;; WHILE e DO s END ELSE SKIP END).
-  Proof. admit. Admitted.
+  Proof.
+    unfold bs_equivalent; intros c c'; split; intro H.
+    - (* => *) inversion_clear H; eauto.
+    - (* <= *) inversion_clear H; [inversion_clear STEP | inversion_clear STEP]; eauto.
+  Qed.
       
   (* Terminating loop invariant *)
   Lemma while_false (e : expr) (s : stmt) (st : state Z)
@@ -187,26 +195,83 @@ End SmokeTest.
 (* Semantic equivalence is a congruence *)
 Lemma eq_congruence_seq_r (s s1 s2 : stmt) (EQ : s1 ~~~ s2) :
   (s  ;; s1) ~~~ (s  ;; s2).
-Proof. admit. Admitted.
+Proof.
+unfold bs_equivalent; intros c c'; split; intro H.
+  - (* => *)
+    inversion H; subst.
+    apply EQ in STEP2.
+    eauto.
+  - (* <= *)
+    inversion H; subst.
+    apply EQ in STEP2.
+    eauto.
+Qed.
 
 Lemma eq_congruence_seq_l (s s1 s2 : stmt) (EQ : s1 ~~~ s2) :
   (s1 ;; s) ~~~ (s2 ;; s).
-Proof. admit. Admitted.
+Proof.
+  unfold bs_equivalent; intros c c'; split; intro H.
+  - (* => *)
+    inversion H; subst.
+    apply EQ in STEP1.
+    eauto.
+  - (* <= *)
+    inversion H; subst.
+    apply EQ in STEP1.
+    eauto.
+Qed.
 
 Lemma eq_congruence_cond_else
       (e : expr) (s s1 s2 : stmt) (EQ : s1 ~~~ s2) :
   COND e THEN s  ELSE s1 END ~~~ COND e THEN s  ELSE s2 END.
-Proof. admit. Admitted.
+Proof.
+  unfold bs_equivalent; intros c c'; split; intro H.
+  - (* => *)
+    inversion H; subst.
+    +eauto.
+    + apply EQ in STEP. eauto.
+  - (* <= *)
+    inversion H; subst.
+    + eauto.
+    + apply EQ in STEP. eauto.
+Qed.
 
 Lemma eq_congruence_cond_then
       (e : expr) (s s1 s2 : stmt) (EQ : s1 ~~~ s2) :
   COND e THEN s1 ELSE s END ~~~ COND e THEN s2 ELSE s END.
-Proof. admit. Admitted.
+Proof.
+  unfold bs_equivalent; intros c c'; split; intro H.
+  - (* => *)
+    inversion H; subst.
+    + apply EQ in STEP. eauto.
+    + eauto.
+  - (* <= *)
+    inversion H; subst.
+    + apply EQ in STEP. eauto.
+    + eauto.
+Qed.
 
+(* TODO: more elegant? *)
 Lemma eq_congruence_while
       (e : expr) (s1 s2 : stmt) (EQ : s1 ~~~ s2) :
   WHILE e DO s1 END ~~~ WHILE e DO s2 END.
-Proof. admit. Admitted.
+Proof.
+  unfold bs_equivalent; intros c c'; split; intro EXE.
+  - (* => *)
+    remember (WHILE e DO s1 END) as loop eqn:H_loop.
+    induction EXE; try discriminate; inversion H_loop; subst.
+    + apply EQ in EXE1.
+      assert (NEXT: c' == WHILE e DO s2 END ==> c'') by (apply IHEXE2; reflexivity).
+      eapply bs_While_True; eauto.
+    + eapply bs_While_False; eauto.
+  - (* <= *)
+    remember (WHILE e DO s2 END) as loop eqn:H_loop.
+    induction EXE; try discriminate; inversion H_loop; subst.
+    + apply EQ in EXE1.
+      assert (NEXT: c' == WHILE e DO s1 END ==> c'') by (apply IHEXE2; reflexivity).
+      eapply bs_While_True; eauto.
+    + eapply bs_While_False; eauto.
+Qed.
 
 Lemma eq_congruence (e : expr) (s s1 s2 : stmt) (EQ : s1 ~~~ s2) :
   ((s  ;; s1) ~~~ (s  ;; s2)) /\
@@ -214,7 +279,17 @@ Lemma eq_congruence (e : expr) (s s1 s2 : stmt) (EQ : s1 ~~~ s2) :
   (COND e THEN s  ELSE s1 END ~~~ COND e THEN s  ELSE s2 END) /\
   (COND e THEN s1 ELSE s  END ~~~ COND e THEN s2 ELSE s  END) /\
   (WHILE e DO s1 END ~~~ WHILE e DO s2 END).
-Proof. admit. Admitted.
+Proof.
+split.
+  - apply eq_congruence_seq_r. exact EQ.
+  - split.
+    + apply eq_congruence_seq_l. exact EQ.
+    + split.
+      * apply eq_congruence_cond_else. exact EQ.
+      * split.
+        apply eq_congruence_cond_then. exact EQ. 
+        apply eq_congruence_while. exact EQ. 
+Qed.
 
 (* Big-step semantics is deterministic *)
 Ltac by_eval_deterministic :=
@@ -351,11 +426,24 @@ Module Renaming.
     (r r' : Renaming.renaming)
     (Hinv : Renaming.renamings_inv r r')
     (s    : stmt) : rename r (rename r' s) = s.
-  Proof. admit. Admitted.
+  Proof.
+    induction s; simpl.
+    - reflexivity.
+    - rewrite Hinv. rewrite Renaming.re_rename_expr; auto.
+    - rewrite Hinv. reflexivity.
+    - rewrite Renaming.re_rename_expr; auto.
+    - rewrite IHs1, IHs2. reflexivity.
+    - rewrite Renaming.re_rename_expr; auto.
+      rewrite IHs1, IHs2. reflexivity.
+    - rewrite Renaming.re_rename_expr; auto.
+      rewrite IHs. reflexivity.
+  Qed.
   
   Lemma rename_state_update_permute (st : state Z) (r : renaming) (x : id) (z : Z) :
     Renaming.rename_state r (st [ x <- z ]) = (Renaming.rename_state r st) [(Renaming.rename_id r x) <- z].
-  Proof. admit. Admitted.
+  Proof.
+    destruct r as [f Hf]. simpl. reflexivity.
+  Qed.
   
   #[export] Hint Resolve Renaming.eval_renaming_invariance : core.
 
