@@ -630,10 +630,16 @@ Inductive cps_int : cont -> cont -> conf -> conf -> Prop :=
     k |- (st, i, o) -- !(WHILE e DO s END) --> c'
 where "k |- c1 -- s --> c2" := (cps_int k s c1 c2).
 
+(* TODO: delete if not used *)
 Ltac cps_bs_gen_helper k H HH :=
   destruct k eqn:K; subst; inversion H; subst;
   [inversion EXEC; subst | eapply bs_Seq; eauto];
   apply HH; auto.
+
+Lemma cps_empty_eq (c c' : conf) (EXEC : KEmpty |- c -- KEmpty --> c') : c = c'.
+Proof.
+  inversion EXEC; subst; reflexivity.
+Qed.
     
 Lemma cps_bs_gen (S : stmt) (c c' : conf) (S1 k : cont)
       (EXEC : k |- c -- S1 --> c') (DEF : !S = S1 @ k):
@@ -642,27 +648,71 @@ Proof. admit. Admitted.
 
 Lemma cps_bs (s1 s2 : stmt) (c c' : conf) (STEP : !s2 |- c -- !s1 --> c'):
    c == s1 ;; s2 ==> c'.
-Proof. admit. Admitted.
+Proof.
+  eapply cps_bs_gen.
+  - eauto.
+  - reflexivity. 
+Qed.
 
 Lemma cps_int_to_bs_int (c c' : conf) (s : stmt)
       (STEP : KEmpty |- c -- !(s) --> c') : 
   c == s ==> c'.
-Proof. admit. Admitted.
+Proof.
+  eapply cps_bs_gen.
+  - eauto.
+  - reflexivity.
+Qed.
 
 Lemma cps_cont_to_seq c1 c2 k1 k2 k3
       (STEP : (k2 @ k3 |- c1 -- k1 --> c2)) :
   (k3 |- c1 -- k1 @ k2 --> c2).
-Proof. admit. Admitted.
+Proof. 
+    destruct k1; destruct k2; simpl.
+  - exact STEP.
+  - destruct k3; inversion STEP.
+  - exact STEP.
+  - apply cps_Seq.
+    exact STEP.
+Qed.
+
+(* helper for next lemma *)
+Lemma kapp_empty_r (k : cont) : k @ KEmpty = k.
+Proof.
+  destruct k; reflexivity.
+Qed.
 
 Lemma bs_int_to_cps_int_cont c1 c2 c3 s k
       (EXEC : c1 == s ==> c2)
       (STEP : k |- c2 -- !(SKIP) --> c3) :
   k |- c1 -- !(s) --> c3.
-Proof. admit. Admitted.
+Proof.
+  inversion STEP; subst; clear STEP; revert k c3 CSTEP; induction EXEC; intros k0 d H_k.
+  - (* skip *) apply cps_Skip. exact H_k.
+  - (* ssign *) eapply cps_Assign; [ eassumption | exact H_k ].
+  - (* read *) apply cps_Read. exact H_k.
+  - (* write *) eapply cps_Write; [ eassumption | exact H_k ].
+  - (* seq *) 
+    apply cps_Seq; apply IHEXEC1; apply cps_cont_to_seq; rewrite kapp_empty_r; apply IHEXEC2;
+    exact H_k.
+  - (* ite t *) apply cps_If_True;  [ assumption | apply IHEXEC; exact H_k ].
+  - (* ite f *) apply cps_If_False; [ assumption | apply IHEXEC; exact H_k ].
+  - (* while t *) 
+    apply cps_While_True; [ assumption | ].
+    apply IHEXEC1.
+    apply cps_cont_to_seq.
+    rewrite kapp_empty_r.
+    apply IHEXEC2.
+    exact H_k.
+  - (* while f *) apply cps_While_False; [ assumption | exact H_k ].
+Qed.
 
 Lemma bs_int_to_cps_int st i o c' s (EXEC : (st, i, o) == s ==> c') :
   KEmpty |- (st, i, o) -- !s --> c'.
-Proof. admit. Admitted.
+Proof.
+  eapply bs_int_to_cps_int_cont.
+  - exact EXEC.
+  - apply cps_Skip; apply cps_Empty.
+Qed.
 
 (* Lemma cps_stmt_assoc s1 s2 s3 s (c c' : conf) : *)
 (*   (! (s1 ;; s2 ;; s3)) |- c -- ! (s) --> (c') <-> *)
