@@ -27,10 +27,10 @@ Module StraightLine.
   Inductive insn : Set :=
   | R  : insn
   | W  : insn
-  | C  : Z -> insn
-  | L  : id -> insn
-  | S  : id -> insn
-  | B  : bop -> insn.
+  | C  : Z -> insn (* const *)
+  | L  : id -> insn (* load *)
+  | S  : id -> insn (* store *)
+  | B  : bop -> insn. (* do bop *)
 
   (* Program *)
   Definition prog := list insn.
@@ -190,6 +190,16 @@ Module StraightLine.
   | Nat  n       => [C n]
   | Bop op e1 e2 => compile_expr e1 ++ compile_expr e2 ++ [B op]
   end.
+
+  Ltac solve_z_dec :=
+    match goal with
+    | |- context[Z_le_gt_dec ?x ?y] => destruct (Z_le_gt_dec x y)
+    | |- context[Z_ge_lt_dec ?x ?y] => destruct (Z_ge_lt_dec x y)
+    | |- context[Z_lt_ge_dec ?x ?y] => destruct (Z_lt_ge_dec x y)
+    | |- context[Z_gt_le_dec ?x ?y] => destruct (Z_gt_le_dec x y)
+    | |- context[Z_noteq_dec ?x ?y] => destruct (Z_noteq_dec x y)
+    | _ => idtac
+    end; try lia; try congruence.
   
   (* Partial correctness of expression compiler *)
   Lemma compiled_expr_correct_cont
@@ -198,7 +208,13 @@ Module StraightLine.
         (VAL : [| e |] st => n)
         (EXEC: (n::s, st, i, o) -- p --> c) :        
     (s, st, i, o) -- (compile_expr e) ++ p --> c.
-  Proof. admit. Admitted.
+  Proof. 
+    generalize dependent p; generalize dependent s.
+    induction VAL; intros s0 p0 Ex; simpl; 
+    try (rewrite <- !app_assoc; eapply IHVAL1; eapply IHVAL2; simpl; econstructor; eauto; fail);
+    try (econstructor; eauto).
+    all: try (econstructor; [ solve_z_dec | exact Ex ]). (* TODO: find if this can be safely deleted *)
+  Qed.
 
   #[export] Hint Resolve compiled_expr_correct_cont.
   
@@ -206,25 +222,60 @@ Module StraightLine.
         (e : expr) (st : state Z) (s i o : list Z) (n : Z)
         (VAL : [| e |] st => n) :
     (s, st, i, o) -- (compile_expr e) --> (n::s, st, i, o).
-  Proof. admit. Admitted.
+  Proof.
+    rewrite <- (app_nil_r (compile_expr e)).
+    apply (compiled_expr_correct_cont e st s i o n nil); eauto; repeat constructor.
+  Qed.
   
+  (* TODO: more elegant? *)
   Lemma compiled_expr_not_incorrect_cont
         (e : expr) (st : state Z) (s i o : list Z) (p : prog) (c : conf)
         (EXEC : (s, st, i, o) -- compile_expr e ++ p --> c) :
     exists (n : Z), [| e |] st => n /\ (n :: s, st, i, o) -- p --> c.
-  Proof. admit. Admitted.
+  Proof.
+    generalize dependent p; generalize dependent s; generalize dependent i; generalize dependent o.
+    induction e; intros o' i' s p EXEC; simpl in EXEC.
+    - (* nat *) inversion EXEC; subst; clear EXEC. exists z. split.
+      + apply bs_Nat.
+      + exact EXEC0.
+    - (* var *) inversion EXEC; subst; clear EXEC. exists z. split.
+      + apply bs_Var. exact VAR.
+      + exact EXEC0.
+    - (* bop *)
+      rewrite <- !app_assoc in EXEC.
+      edestruct IHe1 as [za [VALA EX1]]. { exact EXEC. }
+      edestruct IHe2 as [zb [VALB EX2]]. { exact EX1. }
+      simpl in EX2. inversion EX2; subst; clear EX2.
+      all: try (exists Z.one; split; [econstructor; eauto; try lia | exact EXEC0]).
+      all: try (exists Z.zero; split; [econstructor; eauto; try lia | exact EXEC0]).
+      + (* add *) exists (za + zb)%Z. split; [econstructor; eauto | exact EXEC0].
+      + (* sub *) exists (za - zb)%Z. split; [econstructor; eauto | exact EXEC0].
+      + (* mul *) exists (za * zb)%Z. split; [econstructor; eauto | exact EXEC0].
+      + (* div *) exists (Z.div za zb). split; [econstructor; eauto | exact EXEC0].
+      + (* mod *) exists (Z.modulo za zb). split; [econstructor; eauto | exact EXEC0].
+      + (* and *) exists (za * zb)%Z. split; [econstructor; eauto | exact EXEC0].
+      + (* or *)  exists (zor za zb).   split; [econstructor; eauto | exact EXEC0].
+  Qed.
   
   Lemma compiled_expr_not_incorrect
         (e : expr) (st : state Z)
         (s i o : list Z) (n : Z)
         (EXEC : (s, st, i, o) -- (compile_expr e) --> (n::s, st, i, o)) :
     [| e |] st => n.
-  Proof. admit. Admitted.
+  Proof.
+    rewrite <- (app_nil_r (compile_expr e)) in EXEC.
+    eapply compiled_expr_not_incorrect_cont in EXEC as [n' [VAL EXEC]].
+    inversion EXEC; subst; exact VAL.
+  Qed.
   
   Lemma expr_compiler_correct
         (e : expr) (st : state Z) (s i o : list Z) (n : Z) :
     (s, st, i, o) -- (compile_expr e) --> (n::s, st, i, o) <-> [| e |] st => n.
-  Proof. admit. Admitted.
+  Proof.
+    split; intros.
+    - eapply compiled_expr_not_incorrect; eauto.
+    - eapply compiled_expr_correct; eauto.
+  Qed.
       
   Fixpoint compile (s : stmt) (H : StraightLine s) : prog :=
     match H with
